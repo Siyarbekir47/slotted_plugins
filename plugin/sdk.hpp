@@ -257,6 +257,10 @@ namespace sdk {
             return std::sqrtf(x * x + y * y + z * z);
         }
 
+        [[nodiscard]] auto length_world() const -> float {
+            return std::sqrtf(x * x + z * z);
+        }
+
         [[nodiscard]] auto length_squared() const -> float {
             return x * x + y * y + z * z;
         }
@@ -377,12 +381,16 @@ namespace sdk {
             return *this;
         }
 
-        auto dist_to(const Vec3& o) const -> float {
+        [[nodiscard]] auto dist_to(const Vec3& o) const -> float {
+            return ((*this) - o).length_world();
+        }
+
+        [[nodiscard]] auto dist_to_3d(const Vec3& o) const -> float {
             return ((*this) - o).length();
         }
 
         auto dist_to_squared(const Vec3& o) const -> float {
-            return (*this - 0).length_squared();
+            return (*this - o).length_squared();
         }
 
         auto dot(const Vec3& o) const -> float {
@@ -904,18 +912,70 @@ namespace sdk {
         return out;                                                                                     \
     }
 
-    struct OnStartSpellCastEvent {
+    enum class GameObjectOrder : uint8_t {
+        HoldPosition = 1, // hold, no attack
+        MoveTo = 2,       // move, attack move
+        AttackUnit = 3,   // target attack
+        AutoAttackPet,
+        AutoAttack,
+        MovePet,
+        AttackTo,
+        Stop = 10 // stop
+    };
+
+    struct OnProcessSpellEvent {
+        const struct RawSpellCastInfo* spell_cast_info;
+    };
+
+    struct OnIssueOrderEvent {
+        const uint32_t order;
+        Vec3* position;
+        struct Object* target;
+        const bool manual;
+        bool* prevent;
+    };
+
+    struct OnCreateObjectEvent {
+        const Object* object;
+    };
+
+    struct OnDeleteObjectEvent {
+        const uintptr_t object_address;
+    };
+
+    struct OnStartCastEvent {
+        const struct SpellSlot* spell;
+        const bool manual;
+        bool* prevent;
+    };
+
+    struct OnBuffEvent {
+        const Object* object;
+        const struct BuffInstance* buff;
+        const bool gain;
+    };
+
+    struct OnSpellImpactEvent {
+        const RawSpellCastInfo* spell_cast_info;
+    };
+
+    struct OnPathChangeEvent {
+        const Object* object;
+    };
+
+    struct OnStopCastEvent {
         const struct SpellCastInfo* spell_cast_info;
-        const struct Object* caster;
+        const bool stop_animation;
+        const bool force_stop;
     };
 
     struct OnOrbwalkerPreAttackEvent {
-        struct Object* target;
+        Object* target;
         bool cancel;
     };
 
     struct OnOrbwalkerPostAttackEvent {
-        const struct Object* target; // can be nullptr
+        Object* target; // can be nullptr
     };
 
     struct OnOrbwalkerPreMoveEvent {
@@ -924,16 +984,26 @@ namespace sdk {
     };
 
     enum class EventType : uint8_t {
+        // GAME EVENTS
+        OnCreateObject, // Object*
+        OnDeleteObject, // uintptr_t object_address
+        OnStartCast,    // OnStartCastEvent* arg
+        OnProcessSpell, // OnProcessSpellEvent* arg
+        OnStopCast,     // OnStopCastEvent* arg
+        OnSpellImpact,  // OnSpellImpactEvent* arg
+        OnIssueOrder,   // OnIssueOrderEvent* arg
+        OnBuff,         // OnBuffEvent* arg
+        OnPathChange,   // OnPathChangeEvent* arg
+
+        // FEATURE EVENTS
+        OnOrbwalkerPreAttack,  // OnOrbwalkerPreAttackEvent* arg
+        OnOrbwalkerPostAttack, // OnOrbwalkerPostAttackEvent* arg
+        OnOrbwalkerPreMove,    // OnOrbwalkerPreMoveEvent* arg
+
+        // GENERAL EVENTS
         OnUpdate,
-        OnCreateObject, // Object* arg
-        OnDeleteObject, // Object* arg
-        OnStartSpellCast, // RawSpellCastInfo* arg
-        OnOrbwalkerPreAttack, // OnOrbwalkerPreAttackEvent* arg
-        OnOrbwalkerPostAttack, // OnOrbwalkerPostAttackEvent* arg 
-        OnOrbwalkerPreMove, // OnOrbwalkerPreMoveEvent* arg
         OnDraw,
-        OnUpdateMenu,
-        OnPredictSkillshot // PredictionResult* arg
+        OnUpdateMenu
     };
 
     struct Subscription {
@@ -1073,8 +1143,420 @@ namespace sdk {
         max
     };
 
+    enum class ItemID : uint32_t {
+        Unknown = 0,
+        Boots = 1001,
+        FaerieCharm = 1004,
+        RejuvenationBead = 1006,
+        GiantsBelt = 1011,
+        GiantsBeltArena = 221011,
+        CloakOfAgility = 1018,
+        BlastingWand = 1026,
+        BlastingWandArena = 221026,
+        SapphireCrystal = 1027,
+        RubyCrystal = 1028,
+        ClothArmor = 1029,
+        ChainVest = 1031,
+        ChainVestArena = 221031,
+        NullMagicMantle = 1033,
+        LongSword = 1036,
+        Pickaxe = 1037,
+        BFSword = 1038,
+        BFSwordArena = 221038,
+        Dagger = 1042,
+        RecurveBow = 1043,
+        RecurveBowArena = 221043,
+        AmplifyingTome = 1052,
+        VampiricScepter = 1053,
+        VampiricScepterArena = 221053,
+        DoransShield = 1054,
+        DoransBlade = 1055,
+        DoransRing = 1056,
+        NegatronCloak = 1057,
+        NegatronCloakArena = 221057,
+        NeedlesslyLargeRod = 1058,
+        NeedlesslyLargeRodArena = 221058,
+        DarkSeal = 1082,
+        Cull = 1083,
+        ScorchclawPup = 1101,
+        GustwalkerHatchling = 1102,
+        MosstomperSeedling = 1103,
+        MosstomperSeedling2 = 1105,
+        GustwalkerHatchling2 = 1106,
+        ScorchclawPup2 = 1107,
+        PenetratingBullets = 1500,
+        Fortification = 1501,
+        ReinforcedArmor = 1502,
+        WardensEye = 1503,
+        ReinforcedArmor2 = 1506,
+        Overcharged = 1507,
+        AntiTowerSocks = 1508,
+        Gusto = 1509,
+        PhreakishGusto = 1510,
+        SuperMechArmor = 1511,
+        SuperMechPowerField = 1512,
+        TurretPlating = 1515,
+        StructureBounty = 1516,
+        StructureBounty2 = 1517,
+        StructureBounty3 = 1518,
+        StructureBounty4 = 1519,
+        Overerchargedha = 1520,
+        Fortification2 = 1521,
+        TowerPowerUp = 1522,
+        HealthPotion = 2003,
+        TotalBiscuitOfEverlastingWill = 2010,
+        SteelSigil = 2019,
+        TheBrutalizer = 2020,
+        Tunneler = 2021,
+        GlowingMote = 2022,
+        GlowingMoteArena = 222022,
+        RefillablePotion = 2031,
+        CorruptingPotion = 2033,
+        PoroSnax = 2052,
+        ControlWard = 2055,
+        ShurelyasBattlesong = 2065,
+        ShurelyasBattlesongArena = 222065,
+        ElixirOfIron = 2138,
+        ElixirOfSorcery = 2139,
+        ElixirOfWrath = 2140,
+        ElixirOfSkill = 2150,
+        ElixirOfAvarice = 2151,
+        ElixirOfForce = 2152,
+        MinionDematerializer = 2403,
+        SeekersArmguard = 2420,
+        ShatteredArmguard = 2421,
+        SlightlyMagicalFootwear = 2422,
+        OverlordsBloodmail = 2501,
+        UnendingDespair = 2502,
+        UnendingDespairArena = 222502,
+        BlackfireTorch = 2503,
+        BlackfireTorchArena = 222503,
+        KaenicRookern = 2504,
+        KaenicRookernArena = 222504,
+        FatedAshes = 2508,
+        Trailblazer = 3002,
+        ArchangelsStaff = 3003,
+        ArchangelsStaffArena = 223003,
+        Manamune = 3004,
+        ManamuneArena = 223004,
+        BerserkersGreaves = 3006,
+        BerserkersGreavesArena = 223006,
+        BootsOfSwiftness = 3009,
+        BootsOfSwiftnessArena = 223009,
+        SymbioticSoles = 3010,
+        ChemtechPutrifier = 3011,
+        ChemtechPutrifierArena = 223011,
+        SynchronizedSouls = 3013,
+        SorcerersShoes = 3020,
+        SorcerersShoesArena = 223020,
+        GlacialBuckler = 3024,
+        GuardianAngel = 3026,
+        GuardianAngelArena = 223026,
+        InfinityEdge = 3031,
+        InfinityEdgeArena = 223031,
+        YunTalWildarrows = 3032,
+        MortalReminder = 3033,
+        MortalReminderArena = 223033,
+        LastWhisper = 3035,
+        LordDominiksRegards = 3036,
+        LordDominiksRegardsArena = 223036,
+        SeraphsEmbrace = 3040,
+        SeraphsEmbraceArena = 223040,
+        MejaisSoulstealer = 3041,
+        Muramana = 3042,
+        MuramanaArena = 223042,
+        Phage = 3044,
+        PhantomDancer = 3046,
+        PhantomDancerArena = 223046,
+        PlatedSteelcaps = 3047,
+        PlatedSteelcapsArena = 223047,
+        ZekesConvergence = 3050,
+        ZekesConvergenceArena = 223050,
+        HearthboundAxe = 3051,
+        SteraksGage = 3053,
+        SteraksGageArena = 223053,
+        Sheen = 3057,
+        SheenArena = 223057,
+        SpiritVisage = 3065,
+        SpiritVisageArena = 223065,
+        WingedMoonplate = 3066,
+        Kindlegem = 3067,
+        KindlegemArena = 223067,
+        SunfireAegis = 3068,
+        SunfireAegisArena = 223068,
+        TearOfTheGoddess = 3070,
+        BlackCleaver = 3071,
+        BlackCleaverArena = 223071,
+        Bloodthirster = 3072,
+        BloodthirsterArena = 223072,
+        ExperimentalHexplate = 3073,
+        ExperimentalHexplateArena = 223073,
+        RavenousHydra = 3074,
+        RavenousHydraArena = 223074,
+        Thornmail = 3075,
+        ThornmailArena = 223075,
+        BrambleVest = 3076,
+        Tiamat = 3077,
+        TrinityForce = 3078,
+        TrinityForceArena = 223078,
+        WardensMail = 3082,
+        WarmogsArmor = 3083,
+        Heartsteel = 3084,
+        HeartsteelArena = 223084,
+        RunaansHurricane = 3085,
+        RunaansHurricaneArena = 223085,
+        Zeal = 3086,
+        StatikkShiv = 3087,
+        StatikkShivArena = 223087,
+        RabadonsDeathcap = 3089,
+        RabadonsDeathcapArena = 223089,
+        WitsEnd = 3091,
+        WitsEndArena = 223091,
+        RapidFirecannon = 3094,
+        RapidFirecannonArena = 223094,
+        LichBane = 3100,
+        LichBaneArena = 223100,
+        BansheesVeil = 3102,
+        BansheesVeilArena = 223102,
+        Redemption = 3107,
+        RedemptionArena = 223107,
+        FiendishCodex = 3108,
+        KnightsVow = 3109,
+        KnightsVowArena = 223109,
+        FrozenHeart = 3110,
+        FrozenHeartArena = 223110,
+        MercurysTreads = 3111,
+        MercurysTreadsArena = 223111,
+        AetherWisp = 3113,
+        ForbiddenIdol = 3114,
+        NashorsTooth = 3115,
+        NashorsToothArena = 223115,
+        RylaisCrystalScepter = 3116,
+        RylaisCrystalScepterArena = 223116,
+        MobilityBoots = 3117,
+        Malignance = 3118,
+        MalignanceArena = 223118,
+        WintersApproach = 3119,
+        WintersApproachArena = 223119,
+        Fimbulwinter = 3121,
+        FimbulwinterArena = 223121,
+        ExecutionersCalling = 3123,
+        GuinsoosRageblade = 3124,
+        GuinsoosRagebladeArena = 223124,
+        CaulfieldsWarhammer = 3133,
+        SerratedDirk = 3134,
+        VoidStaff = 3135,
+        VoidStaffArena = 223135,
+        Cryptbloom = 3137,
+        CryptbloomArena = 223137,
+        MercurialScimitar = 3139,
+        MercurialScimitarArena = 223139,
+        QuicksilverSash = 3140,
+        YoumuusGhostblade = 3142,
+        YoumuusGhostbladeArena = 223142,
+        RanduinsOmen = 3143,
+        RanduinsOmenArena = 223143,
+        ScoutsSlingshot = 3144,
+        HextechAlternator = 3145,
+        HauntingGuise = 3147,
+        HextechRocketbelt = 3152,
+        HextechRocketbeltArena = 223152,
+        BladeOfTheRuinedKing = 3153,
+        BladeOfTheRuinedKingArena = 223153,
+        Hexdrinker = 3155,
+        MawOfMalmortius = 3156,
+        MawOfMalmortiusArena = 223156,
+        ZhonyasHourglass = 3157,
+        ZhonyasHourglassArena = 223157,
+        IonianBootsOfLucidity = 3158,
+        IonianBootsOfLucidityArena = 223158,
+        SpearOfShojin = 3161,
+        SpearOfShojinArena = 223161,
+        Morellonomicon = 3165,
+        MorellonomiconArena = 223165,
+        Zephyr = 3172,
+        UmbralGlaive = 3179,
+        Hullbreaker = 3181,
+        HullbreakerArena = 223181,
+        LocketOfTheIronSolari = 3190,
+        LocketOfTheIronSolariArena = 223190,
+        SpectresCowl = 3211,
+        MikaelsBlessing = 3222,
+        MikaelsBlessingArena = 223222,
+        Terminus = 3302,
+        TerminusArena = 223302,
+        ScarecrowEffigy = 3330,
+        StealthWard = 3340,
+        FarsightAlteration = 3363,
+        OracleLens = 3364,
+        YourCut = 3400,
+        ArdentCenser = 3504,
+        ArdentCenserArena = 223504,
+        EssenceReaver = 3508,
+        EssenceReaverArena = 223508,
+        KalistasBlackSpear = 3599,
+        KalistasBlackSpear2 = 3600,
+        DeadMansPlate = 3742,
+        DeadMansPlateArena = 223742,
+        TitanicHydra = 3748,
+        TitanicHydraArena = 223748,
+        CrystallineBracer = 3801,
+        LostChapter = 3802,
+        CatalystOfAeons = 3803,
+        EdgeOfNight = 3814,
+        EdgeOfNightArena = 223814,
+        WorldAtlas = 3865,
+        RunicCompass = 3866,
+        BountyOfWorlds = 3867,
+        CelestialOpposition = 3869,
+        DreamMaker = 3870,
+        ZazzaksRealmspike = 3871,
+        SolsticeSleigh = 3876,
+        Bloodsong = 3877,
+        FireAtWill = 3901,
+        DeathsDaughter = 3902,
+        RaiseMorale = 3903,
+        OblivionOrb = 3916,
+        ImperialMandate = 4005,
+        ImperialMandateArena = 224005,
+        ForceOfNature = 4401,
+        ForceOfNatureArena = 224401,
+        HorizonFocus = 4628,
+        HorizonFocusArena = 224628,
+        CosmicDrive = 4629,
+        CosmicDriveArena = 224629,
+        BlightingJewel = 4630,
+        VerdantBarrier = 4632,
+        Riftmaker = 4633,
+        RiftmakerArena = 224633,
+        LeechingLeer = 4635,
+        NightHarvester = 4636,
+        DemonicEmbrace = 4637,
+        WatchfulWardstone = 4638,
+        StirringWardstone = 4641,
+        BandleglassMirror = 4642,
+        VigilantWardstone = 4643,
+        Shadowflame = 4645,
+        ShadowflameArena = 224645,
+        Stormsurge = 4646,
+        StormsurgeArena = 224646,
+        DeathsDance = 6333,
+        DeathsDanceArena = 226333,
+        ChempunkChainsword = 6609,
+        ChempunkChainswordArena = 226609,
+        SunderedSky = 6610,
+        SunderedSkyArena = 226610,
+        StaffOfFlowingWater = 6616,
+        StaffOfFlowingWaterArena = 226616,
+        MoonstoneRenewer = 6617,
+        MoonstoneRenewerArena = 226617,
+        EchoesOfHelia = 6620,
+        EchoesOfHeliaArena = 226620,
+        Dawncore = 6621,
+        DawncoreArena = 226621,
+        Stridebreaker = 6631,
+        StridebreakerArena = 226631,
+        LiandrysTorment = 6653,
+        LiandrysTormentArena = 226653,
+        LudensCompanion = 6655,
+        LudensCompanionArena = 226655,
+        RodOfAges = 6657,
+        RodOfAgesArena = 226657,
+        BamisCinder = 6660,
+        IcebornGauntlet = 6662,
+        IcebornGauntletArena = 226662,
+        HollowRadiance = 6664,
+        HollowRadianceArena = 226664,
+        JakshoTheProtean = 6665,
+        JakshoTheProteanArena = 226665,
+        Noonquiver = 6670,
+        KrakenSlayer = 6672,
+        KrakenSlayerArena = 226672,
+        ImmortalShieldbow = 6673,
+        ImmortalShieldbowArena = 226673,
+        NavoriFlickerblade = 6675,
+        NavoriFlickerbladeArena = 226675,
+        TheCollector = 6676,
+        TheCollectorArena = 226676,
+        Rectrix = 6690,
+        Eclipse = 6692,
+        EclipseArena = 226692,
+        ProwlersClaw = 6693,
+        SeryldasGrudge = 6694,
+        SeryldasGrudgeArena = 226694,
+        SerpentsFang = 6695,
+        SerpentsFangArena = 226695,
+        AxiomArc = 6696,
+        AxiomArcArena = 226696,
+        Hubris = 6697,
+        HubrisArena = 226697,
+        ProfaneHydra = 6698,
+        ProfaneHydraArena = 226698,
+        VoltaicCyclosword = 6699,
+        VoltaicCycloswordArena = 226699,
+        Opportunity = 6701,
+        OpportunityArena = 226701,
+        GangplankPlaceholder = 7050,
+        AnathemasChains = 8001,
+        AnathemasChainsArena = 228001,
+        AbyssalMask = 8020,
+        AbyssalMaskArena = 228020,
+    };
+
+    enum class ECombatType {
+        Invalid = 0,
+        Melee,
+        Ranged
+    };
+
+    /*
+     namespace inventory_slot {
+
+    static uint32_t get_item_id(InventorySlot* slot) {
+        return slot->get_item_id();
+    }
+
+    static void get_item_name(InventorySlot* slot, std::string* out) {
+        out->append(slot->get_item_name());
+    }
+
+    static int get_max_amount(InventorySlot* slot) {
+        return slot->get_max_amount();
+    }
+
+    static int get_amount(InventorySlot* slot) {
+        return slot->get_amount();
+    }
+
+    static float get_price(InventorySlot* slot) {
+        return slot->get_price();
+    }
+
+    static int get_stacks(InventorySlot* slot) {
+        return slot->get_stacks();
+    }
+
+    static float get_stats(InventorySlot* slot) {
+        return slot->get_stats();
+    }
+
+}
+
+     */
+
+    struct InventorySlot {
+        IMPORT_FIELD(inventory_slot, uint32_t, get_item_id);
+        IMPORT_FIELD_STRING(inventory_slot, std::string, get_item_name);
+        IMPORT_FIELD(inventory_slot, int, get_max_amount);
+        IMPORT_FIELD(inventory_slot, int, get_amount);
+        IMPORT_FIELD(inventory_slot, float, get_price);
+        IMPORT_FIELD(inventory_slot, int, get_stacks);
+        IMPORT_FIELD(inventory_slot, float, get_stats);
+    };
+
     struct SpellData {
         IMPORT_FIELD_STRING(spell_data, std::string, spell_name);
+        IMPORT_FIELD(spell_data, uint32_t, spell_hash);
         IMPORT_FIELD(spell_data, float, missile_speed);
         IMPORT_FIELD(spell_data, const float*, get_manacost_array);
         IMPORT_FIELD(spell_data, const float*, get_cooldown_array);
@@ -1098,7 +1580,30 @@ namespace sdk {
         IMPORT_FIELD(spell_slot, void*, get_spell_texture);
     };
 
+    struct RawSpellCastInfo {
+        IMPORT_FIELD(raw_spell_cast_info, int16_t, caster_index);
+        IMPORT_FIELD(raw_spell_cast_info, int16_t, target_index);
+        IMPORT_FIELD(raw_spell_cast_info, bool, is_spell);
+        IMPORT_FIELD(raw_spell_cast_info, bool, is_special_autoattack);
+        IMPORT_FIELD(raw_spell_cast_info, bool, is_autoattack);
+
+        IMPORT_FIELD(raw_spell_cast_info, float, total_cast_time);
+        IMPORT_FIELD(raw_spell_cast_info, float, windup_time);
+        IMPORT_FIELD(raw_spell_cast_info, float, start_time);
+        IMPORT_FIELD(raw_spell_cast_info, float, server_cast_time);
+        IMPORT_FIELD(raw_spell_cast_info, float, end_time);
+
+        IMPORT_FIELD(raw_spell_cast_info, uint32_t, slot);
+        IMPORT_FIELD(raw_spell_cast_info, uint32_t, missile_network_id);
+
+        IMPORT_FIELD(raw_spell_cast_info, Vec3, start_position);
+        IMPORT_FIELD(raw_spell_cast_info, Vec3, end_position);
+        IMPORT_FIELD(raw_spell_cast_info, Vec3, direction);
+        IMPORT_FIELD(raw_spell_cast_info, SpellInfo*, spell_info);
+    };
+
     struct SpellCastInfo {
+        IMPORT_FIELD(spell_cast_info, int16_t, caster_index);
         IMPORT_FIELD(spell_cast_info, int16_t, target_index);
         IMPORT_FIELD(spell_cast_info, bool, is_spell);
         IMPORT_FIELD(spell_cast_info, bool, is_special_autoattack);
@@ -1163,9 +1668,16 @@ namespace sdk {
         IMPORT_FIELD(object, float, max_mana);
         IMPORT_FIELD(object, bool, is_hero);
         IMPORT_FIELD(object, bool, is_minion);
+        IMPORT_FIELD(object, bool, is_missile);
+        IMPORT_FIELD(object, bool, is_turret);
+        IMPORT_FIELD(object, bool, is_building); // inhibitor, nexus
+        IMPORT_FIELD(object, bool, is_particle);
+
         IMPORT_FIELD(object, bool, is_dead);
         IMPORT_FIELD(object, bool, is_invisible);
         IMPORT_FIELD(object, bool, is_invulnerable);
+        IMPORT_FIELD(object, bool, is_selectable);
+
         IMPORT_FIELD(object, bool, is_zombie);
         IMPORT_FIELD(object, bool, is_active);
         IMPORT_FIELD(object, uint8_t, team);
@@ -1195,9 +1707,10 @@ namespace sdk {
         IMPORT_FIELD(object, int, level);
         IMPORT_FIELD(object, float, get_bounding_radius);
         IMPORT_FIELD_STRING(object, std::string, object_name);
+        IMPORT_FIELD_STRING(object, std::string, display_name);
+        IMPORT_FIELD(object, Object*, get_owner_object);
 
         // missile methods
-        IMPORT_FIELD(object, bool, is_missile);
         IMPORT_FIELD(object, Vec3, missile_start_position);
         IMPORT_FIELD(object, Vec3, missile_end_position);
         IMPORT_FIELD(object, float, missile_spawn_time);
@@ -1214,12 +1727,20 @@ namespace sdk {
         IMPORT_FIELD(object, bool, is_lane_minion);
         IMPORT_FIELD(object, bool, is_jungle_monster);
         IMPORT_FIELD(object, int, get_monster_priotity);
+        IMPORT_FIELD(object, bool, is_ranged);
+        IMPORT_FIELD(object, bool, is_melee);
+        IMPORT_FIELD(object, void*, get_square_texture); // this is the champion/minion splash art, drawn with render::texture() function
+        IMPORT_FIELD(object, void*, get_circle_texture); // this is the champion/minion splash art, drawn with render::texture() function
 
         IMPORT_FIELD(object, SpellCastInfo*, get_spell_cast_info);
         IMPORT_FIELD(object, AiManager*, get_ai_manager);
         IMPORT_FIELD(object, BuffManager*, get_buff_manager);
         IMPORT_METHOD(object, SpellSlot*, get_spell_slot, ESpellSlot slot, slot);
+
         IMPORT_METHOD(object, bool, has_buff, uint32_t hash, hash);
+        IMPORT_METHOD(object, bool, has_item, ItemID id, id);
+        IMPORT_METHOD(object, InventorySlot*, get_inventory_slot_by_item, ItemID id, id);
+        IMPORT_METHOD(object, InventorySlot*, get_inventory_slot_by_index, uint32_t index, index);
     };
 
     // define functions
@@ -1281,6 +1802,7 @@ namespace sdk {
         bool create_combo_box(SmallStr label, int* current_item, const SmallStr items[], int items_count);
         bool create_checkbox(SmallStr label, bool* value);
         bool create_int_slider(SmallStr label, int* value, int min, int max, SmallStr format);
+        bool create_keybind(SmallStr label, int* value);
         uint64_t* init_config(const uint64_t key, const uint64_t default_value);
         bool* init_bool(const ConfigKey key, const bool default_value);
         int* init_int(const ConfigKey key, const int default_value);
@@ -1579,6 +2101,14 @@ namespace sdk {
             JOIN(SmallStr label, int* value, int min, int max, SmallStr format),
             JOIN(label, value, min, max, format)
         );
+
+        IMPORT_FUNCTION(
+            menu_api,
+            bool,
+            create_keybind,
+            JOIN(SmallStr label, int* value),
+            JOIN(label, value)
+        ); // value is virtual key codes https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
         IMPORT_FUNCTION(menu_api, uint64_t*, init_config, JOIN(const uint64_t key, const uint64_t default_value), JOIN(key, default_value));
 
         bool* init_bool(const ConfigKey key, const bool default_value) {
@@ -1676,10 +2206,10 @@ namespace sdk {
         IMPORT_FUNCTION(orbwalker, float, get_attack_cast_delay, , );
         IMPORT_FUNCTION(orbwalker, void, ignore_minion, JOIN(int16_t index, float duration), JOIN(index, duration));
         IMPORT_FUNCTION(orbwalker, bool, is_ignored, int16_t index, index);
-        IMPORT_FUNCTION(orbwalker, void, disable_movement_for, float duration, duration); // duration is actually expire time, so do give it
-                                                                                          // arg as game_time + duration
-        IMPORT_FUNCTION(orbwalker, void, disable_autoattack_for, float duration, duration); // duration is actually expire time, so do give
-                                                                                            // it arg as game_time + duration
+
+        IMPORT_FUNCTION(orbwalker, void, disable_movement_for, float duration, duration);
+        IMPORT_FUNCTION(orbwalker, void, disable_autoattack_for, float duration, duration);
+
         IMPORT_FUNCTION(orbwalker, Color, get_rainbow_color, , );
         IMPORT_FUNCTION(orbwalker, Color, get_pulsing_color, , );
     } // namespace orbwalker
