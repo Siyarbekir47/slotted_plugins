@@ -23,11 +23,14 @@ static void on_update_callback(void*) {
     if (!script::siyarAIO_enabled) return;
 
     auto local = sdk::object_manager::get_local();
-    if (!local || local->is_dead()) return;
-
+    // after karhtus becouse death_passive
+    if (!local || local->is_dead()) {
+        return;
+    }
     if (local->object_name() == "Karthus") {
         karthus::on_update(local);
     }
+
 }
 
 static void on_draw(void*) {
