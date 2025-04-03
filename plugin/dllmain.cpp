@@ -23,13 +23,14 @@ static void on_update_callback(void*) {
     if (!script::siyarAIO_enabled) return;
 
     auto local = sdk::object_manager::get_local();
-    // after karhtus becouse death_passive
-    if (!local || local->is_dead()) {
+
+    if (!local || local->is_dead() && local->object_name() != "Karthus") {
         return;
     }
     if (local->object_name() == "Karthus") {
         karthus::on_update(local);
     }
+
 
 }
 

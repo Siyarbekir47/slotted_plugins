@@ -1,10 +1,12 @@
 ﻿#include "karthus.hpp"
 #include <unordered_map>
 
+// TODO: add laneclear Q, add killsteal Q, FIX E(dead enemys & when not in combo anymore still disable)
+
 namespace karthus {
 
 
-        // Config variables for menu settings
+   // Config variables for menu settings
     bool enable_q = true; // Enable/disable abilities
     bool enable_w = true;
     bool enable_e = true;
@@ -63,6 +65,12 @@ namespace karthus {
     static float calculate_r_damage(sdk::Object* local, int r_level) {
         const std::vector<float> r_base_damage = {0.f, 200.f, 350.f, 500.f};
         return r_base_damage[r_level] + 0.7f * local->ability_power();
+    }
+    static float calculate_q_damage_lc(sdk::Object* local) {
+        const std::vector<float> q_base_damage = {0.f, 40.f, 59.f, 78.f, 97.f, 116.f};
+        auto q_slot = local->get_spell_slot(sdk::ESpellSlot::q);
+        int q_level = q_slot ? q_slot->level() : 0;
+        return q_base_damage[q_level] + 0.35f * local->ability_power();
     }
 
     static void draw_r_killable() {
@@ -131,8 +139,49 @@ namespace karthus {
         }
     }
 
-    //combo
-    void handle_q_combo(sdk::Object* local) {
+    bool handle_q_enemy(sdk::Object* local, float Q_RANGE, float Q_SPEED, float Q_RADIUS, float Q_DELAY, auto target) {
+        if (target) {
+            float distance = local->position().dist_to(target->position());
+            if (distance <= Q_RANGE) {
+                auto prediction = sdk::prediction::predict_skillshot(target, Q_RANGE, Q_SPEED, Q_RADIUS, Q_DELAY, local->position(), false);
+                if (prediction.valid && static_cast<int>(prediction.hitchance) >= hitchance_q) {
+                    if (sdk::spellbook::cast_spell_to_position(sdk::ESpellSlot::q, prediction.position)) {
+                        sdk::utils::console_debug_message("WOOOW", "Q", sdk::Color::green());
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+    bool handle_q_lasthit(sdk::Object* local, float Q_RANGE, float Q_DELAY_MIN) {
+        bool casted = false;
+        auto minions = sdk::object_manager::get_enemy_minions();
+        for (auto minion: minions) {
+            if (!minion || minion->is_dead() || minion->team() == local->team() || !minion->is_lane_minion()) {
+                continue;
+            }
+            if (local->position().dist_to(minion->position()) > Q_RANGE) {
+                continue;
+            }
+
+            float q_damage = calculate_q_damage_lc(local);
+            float predicted_health = sdk::prediction::predict_minion_health(minion, Q_DELAY_MIN);
+            if (predicted_health <= q_damage) {
+                auto predictedPosOpt = sdk::prediction::simple_predict(minion, Q_DELAY_MIN);
+                if (!predictedPosOpt.has_value()) {
+                    continue;
+                }
+                auto predictedPos = predictedPosOpt.value();
+                if (sdk::spellbook::cast_spell_to_position(sdk::ESpellSlot::q, predictedPos)) {
+                    casted = true;
+                    break;
+                }
+            }
+        }
+        return casted;
+    }
+    void handle_q(sdk::Object* local) {
 
         static float last_q_time = 0.0f;
         static float lastAttackTime = 0.0f;
@@ -156,35 +205,42 @@ namespace karthus {
         if (sdk::orbwalker::is_winding_up() || (sdk::get_time() - lastAttackTime < 0.08f)) {
             return;
         }
-
-
+        constexpr float Q_RANGE = 875.f;
+        constexpr float Q_RADIUS = 160.f;
+        constexpr float Q_DELAY = 1.f;
+        constexpr float Q_SPEED = 0;
+        constexpr float Q_DELAY_MIN = 0.53f;
 
         // instead of is_ready() check Q_Charges
         if (q_slot && q_slot->charges() > 1) {
-            auto target = sdk::target_selector::get_primary_target();
+            //modes
+            if (sdk::orbwalker::get_mode() == sdk::EOrbwalkerMode::combo) {
+                auto target = sdk::target_selector::get_primary_target();
+                q_is_casting = handle_q_enemy(local, Q_RANGE, Q_SPEED, Q_RADIUS, Q_DELAY, target);
+                if (q_is_casting) {
+                    last_q_time = current_time;
+                }
+            }
+            if (sdk::orbwalker::get_mode() == sdk::EOrbwalkerMode::harass) {
 
-            if (target) {
-                constexpr float Q_RANGE = 875.f;
-                constexpr float Q_RADIUS = 160.f;
-                constexpr float Q_DELAY = 1.f;
-                constexpr float Q_SPEED = 0;
-
-                float distance = local->position().dist_to(target->position());
-                if (distance <= Q_RANGE) {
-                    auto prediction =
-                        sdk::prediction::predict_skillshot(target, Q_RANGE, Q_SPEED, Q_RADIUS, Q_DELAY, local->position(), false);
-                    if (prediction.valid && static_cast<int>(prediction.hitchance) >= hitchance_q) {
-                        if (sdk::spellbook::cast_spell_to_position(sdk::ESpellSlot::q, prediction.position)) {
-                            last_q_time = current_time;
-                            q_is_casting = true;
-                        }
+                bool casted = handle_q_lasthit(local, Q_RANGE, Q_DELAY_MIN);
+                if (casted){
+                    last_q_time = current_time;
+                } else {
+                    auto target = sdk::target_selector::get_primary_target();
+                    q_is_casting = handle_q_enemy(local, Q_RANGE, Q_SPEED, Q_RADIUS, Q_DELAY, target);
+                    if (q_is_casting) {
+                        last_q_time = current_time;
                     }
+                }
+            }
+            if (sdk::orbwalker::get_mode() == sdk::EOrbwalkerMode::lasthit) {
+                if (handle_q_lasthit(local, Q_RANGE, Q_DELAY_MIN)) {
+                    last_q_time = current_time;
                 }
             }
         }
     }
-
-    //combo
     void handle_w_combo(sdk::Object* local) {
         if (!enable_w) {
             return;
@@ -220,7 +276,6 @@ namespace karthus {
             }
         }
     }
-    //combo
     void handle_e_combo(sdk::Object* local) {
         if (!enable_e) {
             return;
@@ -288,7 +343,6 @@ namespace karthus {
             }
         }
     }
-
     void handle_e_other(sdk::Object* local) {
 
         float current_time = sdk::get_time();
@@ -359,8 +413,9 @@ namespace karthus {
                 return;
             }
         }
-        if (sdk::orbwalker::get_mode() == sdk::EOrbwalkerMode::combo) {
-            handle_q_combo(local);
+        if (sdk::orbwalker::get_mode() != sdk::EOrbwalkerMode::none && sdk::orbwalker::get_mode() != sdk::EOrbwalkerMode::flee &&
+            sdk::orbwalker::get_mode() != sdk::EOrbwalkerMode::freeze && sdk::orbwalker::get_mode() != sdk::EOrbwalkerMode::recalling) {
+            handle_q(local);
             handle_w_combo(local);
             handle_e_combo(local);
 
@@ -371,10 +426,10 @@ namespace karthus {
         }
 
 
+
     }
 
 
-    //TODO: add laneclear Q, lasthit Q, add killsteal Q
     void on_draw(sdk::Object* local) {
         if (!local) {
             return;

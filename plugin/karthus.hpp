@@ -4,19 +4,19 @@
 
 namespace karthus {
 
-    // Einstellungen
+    // settings
     extern bool enable_q;
     extern bool enable_w;
     extern bool enable_e;
     extern bool enable_r;
 
-    // Menü-Erstellung
+    // Menu
     void create_menu();
 
-    // Spiellogik
+    // logic
     void on_update(sdk::Object* local);
 
-    // Zeichnungen
+    // draw
     void on_draw(sdk::Object* local);
 
-} // namespace karthus
+}
