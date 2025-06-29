@@ -1,21 +1,33 @@
 // dllmain.cpp - SiyarAIO Project mit Karthus
 #define SDK_IMPLEMENTATION
 #include "sdk.hpp"
-#include "karthus.hpp"
+#include "champions/karthus.hpp"
+#include "champions/kayle.hpp"
+
 
 namespace script {
     static bool siyarAIO_enabled = true;
 
     void create_master_menu() {
-        sdk::menu_api::create_text("[SiyarAIO Settings:]");
-        sdk::menu_api::create_checkbox("[SiyarAIO] Active:", &siyarAIO_enabled);
-        sdk::menu_api::create_new_line();
-        sdk::menu_api::create_separator();
-        auto local = sdk::object_manager::get_local();
-        if (local && local->object_name() == "Karthus") {
-            karthus::create_menu();
+            sdk::menu_api::create_sub_menu(
+                "[SiyarAIO Settings:]",
+                []() {
+                    sdk::menu_api::create_checkbox("[SiyarAIO] Active:", &siyarAIO_enabled);
+                    sdk::menu_api::create_new_line();
+                    sdk::menu_api::create_separator();
+
+                    auto local = sdk::object_manager::get_local();
+                    if (local && local->object_name() == "Karthus") {
+                        karthus::create_menu();
+                    }
+                    if (local && local->object_name() == "Kayle") {
+                        kayle::create_menu();
+                    }
+                },
+                "Activate and configure SiyarAIO"
+            );
         }
-    }
+
 
 } // namespace script
 
@@ -30,6 +42,9 @@ static void on_update_callback(void*) {
     if (local->object_name() == "Karthus") {
         karthus::on_update(local);
     }
+    if (local->object_name() == "Kayle") {
+        kayle::on_update(local);
+    }
 
 
 }
@@ -42,6 +57,9 @@ static void on_draw(void*) {
 
     if (local->object_name() == "Karthus") {
         karthus::on_draw(local);
+    }
+    if (local->object_name() == "Kayle") {
+        kayle::on_draw(local);
     }
 }
 

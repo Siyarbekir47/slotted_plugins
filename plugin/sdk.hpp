@@ -13,40 +13,86 @@
 namespace sdk {
 
     constexpr auto m_pi = 3.14159265359f;
+    constexpr auto TICK = 1.0 / 30.0;
+
+    using i8 = signed char;
+    using i16 = signed short;
+    using i32 = signed int;
+    using i64 = long long;
+    using u8 = unsigned char;
+    using u16 = unsigned short;
+    using u32 = unsigned int;
+    using u64 = unsigned long long;
+    using f32 = float;
+    using f64 = double;
+    using isize = i64;
+    using usize = u64;
+
+    constexpr std::uint8_t char_to_lower(std::uint8_t input) {
+        if (static_cast<std::uint8_t>(input - 0x41) > 0x19u) {
+            return input;
+        }
+
+        return input + 0x20;
+    }
 
     template<uint32_t S> consteval uint64_t fnv1a64(const char (&value)[S]) {
         uint64_t hash = 14695981039346656037ui64;
         for (uint32_t i = 0; i < S - 1; i++) {
-            hash = hash ^ value[i];
+            hash = hash ^ char_to_lower( value[i] );
             hash = hash * 1099511628211ui64;
         }
         return hash;
     }
 
-    inline constexpr char ASCII_LOWER[128] = {
-        0,   1,   2,   3,   4,   5,   6,   7,   8,   9,   10,  11,  12,  13,  14,  15,  16,  17,  18,  19,  20,  21,  22,  23,  24,  25,
-        26,  27,  28,  29,  30,  31,  32,  33,  34,  35,  36,  37,  38,  39,  40,  41,  42,  43,  44,  45,  46,  47,  48,  49,  50,  51,
-        52,  53,  54,  55,  56,  57,  58,  59,  60,  61,  62,  63,  64,  97,  98,  99,  100, 101, 102, 103, 104, 105, 106, 107, 108, 109,
-        110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 91,  92,  93,  94,  95,  96,  97,  98,  99,  100, 101, 102, 103,
-        104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127,
-    };
+    inline constexpr uint64_t fnv1a64_rt( std::string value ) 
+    {
+        uint64_t hash = 14695981039346656037ui64;
+        for ( uint32_t i = 0; i < value.size( ); i++ ) {
+            hash = hash ^ char_to_lower( value[ i ] );
+            hash = hash * 1099511628211ui64;
+        }
+        return hash;
+    }
 
-    template<uint32_t S> consteval uint32_t spell_hash(const char (&value)[S]) {
+    constexpr u32 const fnv1a( const char* str )
+    {
+        u32 hash = 0x811C9DC5;
+
+        for ( auto i = 0u; str[ i ]; ++i )
+        {
+            hash = 16777619 * ( hash ^ char_to_lower( str[ i ] ) );
+        }
+
+        return hash;
+    }
+
+    inline constexpr uint32_t fnv1a32_low_rt( const std::string& str ) {
         uint32_t hash = 0x811C9DC5;
-        for (uint32_t i = 0; i < S - 1; i++) {
-            hash = hash ^ value[i];
+        for ( uint32_t i = 0; i < str.size( ); i++ ) {
+            hash = hash ^ char_to_lower( str[ i ] );
             hash = hash * 0x1000193;
         }
         return hash;
     }
 
+#define ct_hash( str ) (std::integral_constant<std::uint32_t, fnv1a(str)>::value)
+#define buff_hash( x ) ct_hash( x )
+#define fnvhash( x ) ct_hash( x )
+
+#define spell_hash_rt( x ) fnv1a32_low_rt( x )
+#define buff_hash_rt( x ) fnv1a32_low_rt( x )
+#define fnvhash_rt( x ) fnv1a32_low_rt( x )
+
     template<uint32_t S> consteval uint32_t character_hash(const char (&value)[S]) {
         uint32_t hash = 0;
         for (uint32_t i = 0; i < S - 1; i++) {
-            hash = ASCII_LOWER[value[i]] + (hash << 6) + (hash << 16) - hash;
+            hash = char_to_lower( value[i] ) + (hash << 6) + (hash << 16) - hash;
         }
         return hash;
     }
+
+    #define FNV64(x) fnv1a64(#x)
 
     struct SmallStr {
         static constexpr uint8_t KEY[] = {
@@ -71,6 +117,16 @@ namespace sdk {
             }
             for (uint8_t i = 0; i < length; i++) {
                 data[i] = str[i] ^ KEY[i];
+            }
+        }
+
+        SmallStr( const std::string str ) {
+            length = str.size( ) - 1;
+            if ( length > MAX_LENGTH ) {
+                length = MAX_LENGTH;
+            }
+            for ( uint8_t i = 0; i < length; i++ ) {
+                data[ i ] = str[ i ] ^ KEY[ i ];
             }
         }
 
@@ -257,7 +313,11 @@ namespace sdk {
             return std::sqrtf(x * x + y * y + z * z);
         }
 
-        [[nodiscard]] auto length_world() const -> float {
+        [[nodiscard]] auto is_valid( ) const -> bool {
+            return x != 0.f || z != 0.f;
+        }
+
+    	[[nodiscard]] auto length_world() const -> float {
             return std::sqrtf(x * x + z * z);
         }
 
@@ -380,7 +440,7 @@ namespace sdk {
             z /= o;
             return *this;
         }
-
+      
         [[nodiscard]] auto dist_to(const Vec3& o) const -> float {
             return ((*this) - o).length_world();
         }
@@ -521,6 +581,43 @@ namespace sdk {
         float z{};
     };
 
+    struct projection_info {
+        bool is_on_segment{ };
+        Vec3 line_point{ };
+        Vec3 segment_point{ };
+
+        projection_info( bool is_on_segment, const Vec3& segment_point, const Vec3& line_point );
+    };
+
+    inline auto project_on( const Vec3& source, const Vec3& segment_start, const Vec3& segment_end ) -> projection_info {
+        float rs;
+        const auto cx = source.x;
+        const auto cy = source.z;
+        const auto ax = segment_start.x;
+        const auto ay = segment_start.z;
+        const auto bx = segment_end.x;
+        const auto by = segment_end.z;
+
+        const auto rl =
+            static_cast< float >( ( cx - ax ) * ( bx - ax ) + ( cy - ay ) * ( by - ay ) ) / static_cast< float >( pow( bx - ax, 2 ) + pow( by - ay, 2 ) );
+        const auto point_line = Vec3( ax + rl * ( bx - ax ), 0, ay + rl * ( by - ay ) );
+
+        if ( rl < 0 ) {
+            rs = 0;
+        }
+        else if ( rl > 1 ) {
+            rs = 1;
+        }
+        else {
+            rs = rl;
+        }
+
+        const auto is_on_segment = rs == rl;
+        const auto point_segment = is_on_segment ? point_line : Vec3( ax + rs * ( bx - ax ), 0, ay + rs * ( by - ay ) );
+
+        return { is_on_segment, point_segment, point_line };
+    }
+
     class Polygon {
        public:
 
@@ -560,6 +657,47 @@ namespace sdk {
         }
     };
 
+    class Rectangle
+    {
+    public:
+        Vec3 direction;
+        Vec3 perpendicular;
+        Vec3 r_end;
+        Vec3 r_start;
+        float width;
+
+        Rectangle( const Vec3& start, const Vec3& end, const float half_width ) {
+            r_start = start;
+            r_end = end;
+            width = half_width;
+            direction = ( end - start ).normalize( );
+            perpendicular = direction.perpendicular( );
+        }
+
+        auto to_polygon( const int offset = 0, const float override_width = -1 ) const -> Polygon {
+            auto result = Polygon( );
+
+            result.add(
+                r_start + perpendicular * ( override_width > 0.f ? override_width : width + static_cast< float >( offset ) ) -
+                direction * static_cast< float >( offset )
+            );
+            result.add(
+                r_start - perpendicular * ( override_width > 0.f ? override_width : width + static_cast< float >( offset ) ) -
+                direction * static_cast< float >( offset )
+            );
+            result.add(
+                r_end - perpendicular * ( override_width > 0.f ? override_width : width + static_cast< float >( offset ) ) +
+                direction * static_cast< float >( offset )
+            );
+            result.add(
+                r_end + perpendicular * ( override_width > 0.f ? override_width : width + static_cast< float >( offset ) ) +
+                direction * static_cast< float >( offset )
+            );
+
+            return result;
+        }
+    };
+
     enum class EOrbwalkerMode {
         none = 0,
         combo,
@@ -571,7 +709,8 @@ namespace sdk {
         freeze
     };
 
-    enum class EHeroes {
+    enum class EHeroes : u32
+    {
         null,
         aatrox = 266,
         ahri = 103,
@@ -738,7 +877,8 @@ namespace sdk {
     enum class EDamageType {
         true_damage,
         physical_damage,
-        magic_damage
+        magic_damage,
+        mixed_damage
     };
 
     enum class EHitchance {
@@ -904,12 +1044,12 @@ namespace sdk {
         fn(this, &out);                                                                                 \
         return out;                                                                                     \
     }
-#define IMPORT_FIELD_STRING(namespace, type, name)                                                      \
-    type name() {                                                                                       \
-        static const auto fn = (void (*)(void*, type*))(load_function(fnv1a64(#namespace "::" #name))); \
-        type out;                                                                                       \
-        fn(this, &out);                                                                                 \
-        return out;                                                                                     \
+#define IMPORT_FIELD_STRING(namespace, name)                                                        \
+    std::string name() {                                                                            \
+        static const auto fn = (void (*)(void*, char*, size_t))(load_function(fnv1a64(#namespace "::" #name))); \
+        char buffer[256] = {};                                                                      \
+        fn(this, buffer, sizeof(buffer));                                                           \
+        return std::string(buffer);                                                                 \
     }
 
     enum class GameObjectOrder : uint8_t {
@@ -924,19 +1064,19 @@ namespace sdk {
     };
 
     struct OnProcessSpellEvent {
-        const struct RawSpellCastInfo* spell_cast_info;
+        struct RawSpellCastInfo* spell_cast_info;
     };
 
     struct OnIssueOrderEvent {
         const uint32_t order;
-        Vec3* position;
-        struct Object* target;
+    	Vec3* position;
+    	struct Object* target;
         const bool manual;
         bool* prevent;
     };
 
     struct OnCreateObjectEvent {
-        const Object* object;
+        Object* object;
     };
 
     struct OnDeleteObjectEvent {
@@ -944,43 +1084,76 @@ namespace sdk {
     };
 
     struct OnStartCastEvent {
-        const struct SpellSlot* spell;
+        struct SpellSlot* spell;
         const bool manual;
         bool* prevent;
     };
 
     struct OnBuffEvent {
-        const Object* object;
-        const struct BuffInstance* buff;
+        Object* object;
+        struct BuffInstance* buff;
         const bool gain;
     };
 
     struct OnSpellImpactEvent {
-        const RawSpellCastInfo* spell_cast_info;
+        RawSpellCastInfo* spell_cast_info;
     };
 
     struct OnPathChangeEvent {
-        const Object* object;
+        Object* object;
     };
 
     struct OnStopCastEvent {
-        const struct SpellCastInfo* spell_cast_info;
+        struct SpellCastInfo* spell_cast_info;
         const bool stop_animation;
         const bool force_stop;
     };
 
     struct OnOrbwalkerPreAttackEvent {
-        Object* target;
+    	Object* target;
         bool cancel;
     };
 
     struct OnOrbwalkerPostAttackEvent {
-        Object* target; // can be nullptr
+         Object* target; // can be nullptr
     };
 
     struct OnOrbwalkerPreMoveEvent {
-        Vec3 position;
+    	Vec3 position;
         bool cancel;
+    };
+
+    enum class GapcloserType {
+        skillshot,
+        targeted,
+        item
+    };
+
+    struct OnGapcloseArgs {
+        GapcloserType type;
+        Object* target;
+        Object* sender;
+
+        float start_time;
+        float end_time;
+        float speed;
+
+        Vec3 start_position;
+        Vec3 end_position;
+
+        bool is_unstoppable;
+        bool is_cc;
+
+        OnGapcloseArgs( ) :
+            type( GapcloserType::skillshot ),
+            target( nullptr ),
+            sender( nullptr ),
+            start_time( 0.f ),
+            end_time( 0.f ),
+            speed( 0.f ),
+            is_unstoppable( false ),
+            is_cc( false ) {
+        }
     };
 
     enum class EventType : uint8_t {
@@ -1003,7 +1176,15 @@ namespace sdk {
         // GENERAL EVENTS
         OnUpdate,
         OnDraw,
-        OnUpdateMenu
+        OnUpdateMenu,
+
+        OnOrbwalkerAttackOrder,
+
+        OnUpdatePermashow,
+        OnUpdateMenu2, //second_tab
+        
+        OnGapclose,
+        OnDrawGround
     };
 
     struct Subscription {
@@ -1012,6 +1193,7 @@ namespace sdk {
     };
 
     void register_plugin(SmallStr name, const std::vector<Subscription>& subscriptions);
+    void disable_core_plugin( );
     float get_time();
     float get_ping();
     Vec3 get_cursor();
@@ -1023,25 +1205,46 @@ namespace sdk {
     Vec2 world_to_minimap(Vec3 world_position);
 
     // drawings
-    namespace render {
-        // txt
-        void text(Vec2 position, const std::string& text, float text_size, Color color, bool drop_shadow);
-        void text_3d(Vec3 world_position, const std::string& text, float text_size, Color color, bool drop_shadow);
-        Vec2 get_text_size(const std::string& text_string, float text_size);
+    namespace render
+    {
+        void text( Vec2 position, const std::string& text, float text_size, Color color, bool drop_shadow = false );
+        void text_3d( Vec3 world_position, const std::string& text, float text_size, Color color, bool drop_shadow = false );
+        Vec2 get_text_size( const std::string& text_string, float text_size );
         // 2d
-        void box(Vec2 position, Vec2 size, Color color, float rounding, float thickness);
-        void filled_box(Vec2 position, Vec2 size, Color color, float rounding);
-        void circle(Vec2 position, float radius, Color color, int segments, float thickness);
-        void filled_circle(Vec2 position, float radius, Color color, int segments);
-        void line(Vec2 start, Vec2 end, Color color, float thickness);
-        void triangle(Vec2 left, Vec2 right, Vec2 bottom, Color color, float thickness);
-        void filled_triangle(Vec2 left, Vec2 right, Vec2 bottom, Color color);
-        void rectangle_3d(Vec3 start, Vec3 end, float radius, Color color, int flags, float thickness);
-        void polygon_3d(const std::vector<Vec3>& polygon, Color color, int flags, float thickness);
-        void line_3d(Vec3 start, Vec3 end, Color color, float thickness);
-        void circle_3d(Vec3 position, Color color, float radius, int flags, int segments, float thickness, float angle, Vec3 direction);
-        void texture(Vec2 position, Vec2 size, void* texture_view);
-        void circle_minimap(Vec3 position, Color color, float radius, int segments, float thickness);
+        void box( Vec2 position, Vec2 size, Color color, float rounding, float thickness = 1.f );
+        void filled_box( Vec2 position, Vec2 size, Color color, float rounding = -1 );
+        void circle( Vec2 position, float radius, Color color, int segments = 32, float thickness = 1.f );
+        void filled_circle( Vec2 position, float radius, Color color, int segments = 32 );
+        void line( Vec2 start, Vec2 end, Color color, float thickness = 1.f );
+        void triangle( Vec2 left, Vec2 right, Vec2 bottom, Color color, float thickness = 1.f );
+        void filled_triangle( Vec2 left, Vec2 right, Vec2 bottom, Color color );
+        void rectangle_3d( Vec3 start, Vec3 end, float radius, Color color, int flags = 0, float thickness = 1.f ); //E3dCircleFlags = flags
+        void polygon_3d( const std::vector<Vec3>& polygon, Color color, int flags = 0, float thickness = 1.f );
+        void line_3d( Vec3 start, Vec3 end, Color color, float thickness = 1.f );
+        void circle_3d( Vec3 position, Color color, float radius, int flags, int segments, float thickness, float angle, Vec3 direction );
+        void texture( Vec2 position, Vec2 size, void* texture_view );
+        void circle_minimap( Vec3 position, Color color, float radius, int segments = 32, float thickness = 1.f );
+        void circle_3d_glow( const Vec3 center,
+            const f32 radius,
+            const Color color,
+            const f32 thickness = 1.0f,
+            const f32 glow = 0.0f,
+            const u8 type = 0,
+            const f32 glow_opacity = 0.35f,
+            const f32 background_opacity = 0.0f );
+        void polyline_3d_glow( const std::vector<Vec3>& points,
+            const Color color,
+            const f32 thickness = 1.0f,
+            const f32 glow = 0.0f,
+            const f32 glow_opacity = 0.35f );
+        void polygon_3d_glow( const std::vector<Vec3>& points,
+            const Color color,
+            const f32 thickness = 1.0f,
+            const f32 glow = 0.0f,
+            const f32 glow_opacity = 0.35f,
+            const f32 background_opacity = 0.0f );
+        void line_3d_glow( Vec3 start, Vec3 end,
+            const Color color, const f32 thickness = 1.f, const f32 glow = 0.0f, const f32 glow_strength = 0.35f );
     } // namespace render
 
     namespace world_math {
@@ -1053,6 +1256,135 @@ namespace sdk {
         float top;
         float right;
         float bot;
+    };
+
+    enum class ImGuiKey : int
+    {
+        // Keyboard
+        ImGuiKey_None = 0,
+        ImGuiKey_Tab = 512,             // == ImGuiKey_NamedKey_BEGIN
+        ImGuiKey_LeftArrow,
+        ImGuiKey_RightArrow,
+        ImGuiKey_UpArrow,
+        ImGuiKey_DownArrow,
+        ImGuiKey_PageUp,
+        ImGuiKey_PageDown,
+        ImGuiKey_Home,
+        ImGuiKey_End,
+        ImGuiKey_Insert,
+        ImGuiKey_Delete,
+        ImGuiKey_Backspace,
+        ImGuiKey_Space,
+        ImGuiKey_Enter,
+        ImGuiKey_Escape,
+        ImGuiKey_LeftCtrl, ImGuiKey_LeftShift, ImGuiKey_LeftAlt, ImGuiKey_LeftSuper,
+        ImGuiKey_RightCtrl, ImGuiKey_RightShift, ImGuiKey_RightAlt, ImGuiKey_RightSuper,
+        ImGuiKey_Menu,
+        ImGuiKey_0, ImGuiKey_1, ImGuiKey_2, ImGuiKey_3, ImGuiKey_4, ImGuiKey_5, ImGuiKey_6, ImGuiKey_7, ImGuiKey_8, ImGuiKey_9,
+        ImGuiKey_A, ImGuiKey_B, ImGuiKey_C, ImGuiKey_D, ImGuiKey_E, ImGuiKey_F, ImGuiKey_G, ImGuiKey_H, ImGuiKey_I, ImGuiKey_J,
+        ImGuiKey_K, ImGuiKey_L, ImGuiKey_M, ImGuiKey_N, ImGuiKey_O, ImGuiKey_P, ImGuiKey_Q, ImGuiKey_R, ImGuiKey_S, ImGuiKey_T,
+        ImGuiKey_U, ImGuiKey_V, ImGuiKey_W, ImGuiKey_X, ImGuiKey_Y, ImGuiKey_Z,
+        ImGuiKey_F1, ImGuiKey_F2, ImGuiKey_F3, ImGuiKey_F4, ImGuiKey_F5, ImGuiKey_F6,
+        ImGuiKey_F7, ImGuiKey_F8, ImGuiKey_F9, ImGuiKey_F10, ImGuiKey_F11, ImGuiKey_F12,
+        ImGuiKey_F13, ImGuiKey_F14, ImGuiKey_F15, ImGuiKey_F16, ImGuiKey_F17, ImGuiKey_F18,
+        ImGuiKey_F19, ImGuiKey_F20, ImGuiKey_F21, ImGuiKey_F22, ImGuiKey_F23, ImGuiKey_F24,
+        ImGuiKey_Apostrophe,        // '
+        ImGuiKey_Comma,             // ,
+        ImGuiKey_Minus,             // -
+        ImGuiKey_Period,            // .
+        ImGuiKey_Slash,             // /
+        ImGuiKey_Semicolon,         // ;
+        ImGuiKey_Equal,             // =
+        ImGuiKey_LeftBracket,       // [
+        ImGuiKey_Backslash,         // \ (this text inhibit multiline comment caused by backslash)
+        ImGuiKey_RightBracket,      // ]
+        ImGuiKey_GraveAccent,       // `
+        ImGuiKey_CapsLock,
+        ImGuiKey_ScrollLock,
+        ImGuiKey_NumLock,
+        ImGuiKey_PrintScreen,
+        ImGuiKey_Pause,
+        ImGuiKey_Keypad0, ImGuiKey_Keypad1, ImGuiKey_Keypad2, ImGuiKey_Keypad3, ImGuiKey_Keypad4,
+        ImGuiKey_Keypad5, ImGuiKey_Keypad6, ImGuiKey_Keypad7, ImGuiKey_Keypad8, ImGuiKey_Keypad9,
+        ImGuiKey_KeypadDecimal,
+        ImGuiKey_KeypadDivide,
+        ImGuiKey_KeypadMultiply,
+        ImGuiKey_KeypadSubtract,
+        ImGuiKey_KeypadAdd,
+        ImGuiKey_KeypadEnter,
+        ImGuiKey_KeypadEqual,
+        ImGuiKey_AppBack,               // Available on some keyboard/mouses. Often referred as "Browser Back"
+        ImGuiKey_AppForward,
+
+        // Gamepad (some of those are analog values, 0.0f to 1.0f)                          // NAVIGATION ACTION
+        // (download controller mapping PNG/PSD at http://dearimgui.com/controls_sheets)
+        ImGuiKey_GamepadStart,          // Menu (Xbox)      + (Switch)   Start/Options (PS)
+        ImGuiKey_GamepadBack,           // View (Xbox)      - (Switch)   Share (PS)
+        ImGuiKey_GamepadFaceLeft,       // X (Xbox)         Y (Switch)   Square (PS)        // Tap: Toggle Menu. Hold: Windowing mode (Focus/Move/Resize windows)
+        ImGuiKey_GamepadFaceRight,      // B (Xbox)         A (Switch)   Circle (PS)        // Cancel / Close / Exit
+        ImGuiKey_GamepadFaceUp,         // Y (Xbox)         X (Switch)   Triangle (PS)      // Text Input / On-screen Keyboard
+        ImGuiKey_GamepadFaceDown,       // A (Xbox)         B (Switch)   Cross (PS)         // Activate / Open / Toggle / Tweak
+        ImGuiKey_GamepadDpadLeft,       // D-pad Left                                       // Move / Tweak / Resize Window (in Windowing mode)
+        ImGuiKey_GamepadDpadRight,      // D-pad Right                                      // Move / Tweak / Resize Window (in Windowing mode)
+        ImGuiKey_GamepadDpadUp,         // D-pad Up                                         // Move / Tweak / Resize Window (in Windowing mode)
+        ImGuiKey_GamepadDpadDown,       // D-pad Down                                       // Move / Tweak / Resize Window (in Windowing mode)
+        ImGuiKey_GamepadL1,             // L Bumper (Xbox)  L (Switch)   L1 (PS)            // Tweak Slower / Focus Previous (in Windowing mode)
+        ImGuiKey_GamepadR1,             // R Bumper (Xbox)  R (Switch)   R1 (PS)            // Tweak Faster / Focus Next (in Windowing mode)
+        ImGuiKey_GamepadL2,             // L Trig. (Xbox)   ZL (Switch)  L2 (PS) [Analog]
+        ImGuiKey_GamepadR2,             // R Trig. (Xbox)   ZR (Switch)  R2 (PS) [Analog]
+        ImGuiKey_GamepadL3,             // L Stick (Xbox)   L3 (Switch)  L3 (PS)
+        ImGuiKey_GamepadR3,             // R Stick (Xbox)   R3 (Switch)  R3 (PS)
+        ImGuiKey_GamepadLStickLeft,     // [Analog]                                         // Move Window (in Windowing mode)
+        ImGuiKey_GamepadLStickRight,    // [Analog]                                         // Move Window (in Windowing mode)
+        ImGuiKey_GamepadLStickUp,       // [Analog]                                         // Move Window (in Windowing mode)
+        ImGuiKey_GamepadLStickDown,     // [Analog]                                         // Move Window (in Windowing mode)
+        ImGuiKey_GamepadRStickLeft,     // [Analog]
+        ImGuiKey_GamepadRStickRight,    // [Analog]
+        ImGuiKey_GamepadRStickUp,       // [Analog]
+        ImGuiKey_GamepadRStickDown,     // [Analog]
+
+        // Aliases: Mouse Buttons (auto-submitted from AddMouseButtonEvent() calls)
+        // - This is mirroring the data also written to io.MouseDown[], io.MouseWheel, in a format allowing them to be accessed via standard key API.
+        ImGuiKey_MouseLeft, ImGuiKey_MouseRight, ImGuiKey_MouseMiddle, ImGuiKey_MouseX1, ImGuiKey_MouseX2, ImGuiKey_MouseWheelX, ImGuiKey_MouseWheelY,
+
+        // [Internal] Reserved for mod storage
+        ImGuiKey_ReservedForModCtrl, ImGuiKey_ReservedForModShift, ImGuiKey_ReservedForModAlt, ImGuiKey_ReservedForModSuper,
+        ImGuiKey_COUNT,
+
+        // Keyboard Modifiers (explicitly submitted by backend via AddKeyEvent() calls)
+        // - This is mirroring the data also written to io.KeyCtrl, io.KeyShift, io.KeyAlt, io.KeySuper, in a format allowing
+        //   them to be accessed via standard key API, allowing calls such as IsKeyPressed(), IsKeyReleased(), querying duration etc.
+        // - Code polling every key (e.g. an interface to detect a key press for input mapping) might want to ignore those
+        //   and prefer using the real keys (e.g. ImGuiKey_LeftCtrl, ImGuiKey_RightCtrl instead of ImGuiMod_Ctrl).
+        // - In theory the value of keyboard modifiers should be roughly equivalent to a logical or of the equivalent left/right keys.
+        //   In practice: it's complicated; mods are often provided from different sources. Keyboard layout, IME, sticky keys and
+        //   backends tend to interfere and break that equivalence. The safer decision is to relay that ambiguity down to the end-user...
+        ImGuiMod_None = 0,
+        ImGuiMod_Ctrl = 1 << 12, // Ctrl
+        ImGuiMod_Shift = 1 << 13, // Shift
+        ImGuiMod_Alt = 1 << 14, // Option/Menu
+        ImGuiMod_Super = 1 << 15, // Cmd/Super/Windows
+        ImGuiMod_Shortcut = 1 << 11, // Alias for Ctrl (non-macOS) _or_ Super (macOS).
+        ImGuiMod_Mask_ = 0xF800,  // 5-bits
+
+        // [Internal] Prior to 1.87 we required user to fill io.KeysDown[512] using their own native index + the io.KeyMap[] array.
+        // We are ditching this method but keeping a legacy path for user code doing e.g. IsKeyPressed(MY_NATIVE_KEY_CODE)
+        // If you need to iterate all keys (for e.g. an input mapper) you may use ImGuiKey_NamedKey_BEGIN..ImGuiKey_NamedKey_END.
+        ImGuiKey_NamedKey_BEGIN = 512,
+        ImGuiKey_NamedKey_END = ImGuiKey_COUNT,
+        ImGuiKey_NamedKey_COUNT = ImGuiKey_NamedKey_END - ImGuiKey_NamedKey_BEGIN,
+#ifdef IMGUI_DISABLE_OBSOLETE_KEYIO
+        ImGuiKey_KeysData_SIZE = ImGuiKey_NamedKey_COUNT,  // Size of KeysData[]: only hold named keys
+        ImGuiKey_KeysData_OFFSET = ImGuiKey_NamedKey_BEGIN,  // Accesses to io.KeysData[] must use (key - ImGuiKey_KeysData_OFFSET) index.
+#else
+        ImGuiKey_KeysData_SIZE = ImGuiKey_COUNT,           // Size of KeysData[]: hold legacy 0..512 keycodes + named keys
+        ImGuiKey_KeysData_OFFSET = 0,                        // Accesses to io.KeysData[] must use (key - ImGuiKey_KeysData_OFFSET) index.
+#endif
+
+#ifndef IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+        ImGuiKey_ModCtrl = ImGuiMod_Ctrl, ImGuiKey_ModShift = ImGuiMod_Shift, ImGuiKey_ModAlt = ImGuiMod_Alt, ImGuiKey_ModSuper = ImGuiMod_Super, // Renamed in 1.89
+        ImGuiKey_KeyPadEnter = ImGuiKey_KeypadEnter,    // Renamed in 1.87
+#endif
     };
 
     enum class EWardType {
@@ -1509,6 +1841,23 @@ namespace sdk {
         Ranged
     };
 
+    //prediction
+    enum class ESpellType {
+        none,
+        linear,
+        circle
+    };
+
+    enum ECollisionFlags
+    {
+        none = 0,
+        minions = 1 << 0,
+        heroes = 1 << 1,
+        spell_wall = 1 << 2,
+        terrain = 1 << 3,
+        structures = 1 << 4
+    };
+
     /*
      namespace inventory_slot {
 
@@ -1546,7 +1895,7 @@ namespace sdk {
 
     struct InventorySlot {
         IMPORT_FIELD(inventory_slot, uint32_t, get_item_id);
-        IMPORT_FIELD_STRING(inventory_slot, std::string, get_item_name);
+        IMPORT_FIELD_STRING(inventory_slot, get_item_name);
         IMPORT_FIELD(inventory_slot, int, get_max_amount);
         IMPORT_FIELD(inventory_slot, int, get_amount);
         IMPORT_FIELD(inventory_slot, float, get_price);
@@ -1555,7 +1904,7 @@ namespace sdk {
     };
 
     struct SpellData {
-        IMPORT_FIELD_STRING(spell_data, std::string, spell_name);
+        IMPORT_FIELD_STRING(spell_data, spell_name);
         IMPORT_FIELD(spell_data, uint32_t, spell_hash);
         IMPORT_FIELD(spell_data, float, missile_speed);
         IMPORT_FIELD(spell_data, const float*, get_manacost_array);
@@ -1574,14 +1923,15 @@ namespace sdk {
         IMPORT_FIELD(spell_slot, float, manacost);
         IMPORT_FIELD(spell_slot, uint32_t, level);
         IMPORT_FIELD(spell_slot, uint32_t, charges);
-        IMPORT_FIELD_STRING(spell_slot, std::string, name);
+        IMPORT_FIELD_STRING(spell_slot, name);
 
         IMPORT_FIELD(spell_slot, SpellInfo*, get_spell_info);
         IMPORT_FIELD(spell_slot, void*, get_spell_texture);
     };
 
     struct RawSpellCastInfo {
-        IMPORT_FIELD(raw_spell_cast_info, int16_t, caster_index);
+
+		IMPORT_FIELD(raw_spell_cast_info, int16_t, caster_index);
         IMPORT_FIELD(raw_spell_cast_info, int16_t, target_index);
         IMPORT_FIELD(raw_spell_cast_info, bool, is_spell);
         IMPORT_FIELD(raw_spell_cast_info, bool, is_special_autoattack);
@@ -1600,6 +1950,7 @@ namespace sdk {
         IMPORT_FIELD(raw_spell_cast_info, Vec3, end_position);
         IMPORT_FIELD(raw_spell_cast_info, Vec3, direction);
         IMPORT_FIELD(raw_spell_cast_info, SpellInfo*, spell_info);
+	    
     };
 
     struct SpellCastInfo {
@@ -1627,7 +1978,7 @@ namespace sdk {
     struct BuffInstance {
         IMPORT_FIELD(buff_instance, bool, is_active);
         IMPORT_FIELD(buff_instance, bool, is_permanent);
-        IMPORT_FIELD_STRING(buff_instance, std::string, get_name);
+        IMPORT_FIELD_STRING(buff_instance, _get_name);
         IMPORT_FIELD(buff_instance, uint32_t, get_hash);
         IMPORT_FIELD(buff_instance, uint32_t, stacks);
         IMPORT_FIELD(buff_instance, float, start_time);
@@ -1647,14 +1998,14 @@ namespace sdk {
     };
 
     struct AiManager {
-        IMPORT_FIELD(object, Vec3, path_start);
-        IMPORT_FIELD(object, Vec3, path_end);
-        IMPORT_FIELD(object, Vec3, velocity);
-        IMPORT_FIELD(object, bool, is_dashing);
-        IMPORT_FIELD(object, float, dash_speed);
-        IMPORT_FIELD(object, bool, is_moving);
-        IMPORT_FIELD(object, uint32_t, next_waypoint_index);
-        IMPORT_FIELD_VECTOR(object, std::vector<Vec3>, get_waypoints);
+        IMPORT_FIELD( ai_manager, Vec3, path_start);
+        IMPORT_FIELD( ai_manager, Vec3, path_end);
+        IMPORT_FIELD( ai_manager, Vec3, velocity);
+        IMPORT_FIELD( ai_manager, bool, is_dashing);
+        IMPORT_FIELD( ai_manager, float, dash_speed);
+        IMPORT_FIELD( ai_manager, bool, is_moving);
+        IMPORT_FIELD( ai_manager, uint32_t, next_waypoint_index);
+        IMPORT_FIELD_VECTOR( ai_manager, std::vector<Vec3>, get_waypoints);
     };
 
     struct Object {
@@ -1681,6 +2032,9 @@ namespace sdk {
         IMPORT_FIELD(object, bool, is_zombie);
         IMPORT_FIELD(object, bool, is_active);
         IMPORT_FIELD(object, uint8_t, team);
+        IMPORT_FIELD( object, bool, is_unkillable );
+        IMPORT_FIELD( object, bool, valid_ult );
+        IMPORT_FIELD( object, bool, ignore_cc );
         IMPORT_FIELD(object, std::optional<ResourceBarRect>, get_hpbar_position);
         IMPORT_FIELD(object, float, total_armor);
         IMPORT_FIELD(object, float, bonus_armor);
@@ -1706,8 +2060,8 @@ namespace sdk {
         IMPORT_FIELD(object, float, experience);
         IMPORT_FIELD(object, int, level);
         IMPORT_FIELD(object, float, get_bounding_radius);
-        IMPORT_FIELD_STRING(object, std::string, object_name);
-        IMPORT_FIELD_STRING(object, std::string, display_name);
+        IMPORT_FIELD_STRING(object, object_name);
+        IMPORT_FIELD_STRING(object, display_name);
         IMPORT_FIELD(object, Object*, get_owner_object);
 
         // missile methods
@@ -1731,6 +2085,7 @@ namespace sdk {
         IMPORT_FIELD(object, bool, is_melee);
         IMPORT_FIELD(object, void*, get_square_texture); // this is the champion/minion splash art, drawn with render::texture() function
         IMPORT_FIELD(object, void*, get_circle_texture); // this is the champion/minion splash art, drawn with render::texture() function
+
 
         IMPORT_FIELD(object, SpellCastInfo*, get_spell_cast_info);
         IMPORT_FIELD(object, AiManager*, get_ai_manager);
@@ -1774,7 +2129,8 @@ namespace sdk {
     } // namespace target_selector
 
     namespace menu_api {
-        struct ConfigKey {
+        struct ConfigKey 
+        {
            private:
 
             uint64_t value = 0;
@@ -1783,7 +2139,7 @@ namespace sdk {
 
             ConfigKey() = default;
 
-            consteval ConfigKey(const uint64_t value): value(value) {}
+            ConfigKey(const uint64_t value): value(value) {}
 
             template<uint32_t S> consteval ConfigKey(const char (&str)[S]) {
                 value = fnv1a64<S>(str);
@@ -1794,18 +2150,43 @@ namespace sdk {
             }
         };
 
-        bool create_sub_menu(SmallStr label, bool enabled);
+        inline const SmallStr hitchance_names[ ] = {
+            SmallStr( "Fast" ), SmallStr( "Normal" ), SmallStr( "High" ), SmallStr( "Very High" ), SmallStr( "Immobile" ),
+        };
+
+        bool create_sub_menu(SmallStr label, std::function<void()> content, SmallStr description);
         void end_sub_menu();
-        void create_separator();
+        void create_separator(SmallStr label = "");
         void create_new_line();
-        void create_text(SmallStr fmt);
         bool create_combo_box(SmallStr label, int* current_item, const SmallStr items[], int items_count);
         bool create_checkbox(SmallStr label, bool* value);
-        bool create_int_slider(SmallStr label, int* value, int min, int max, SmallStr format);
-        bool create_keybind(SmallStr label, int* value);
+        bool create_int_slider(SmallStr label, int* value, int min, int max);
+        bool create_keybind(SmallStr label, std::uint64_t value_hash); //always use "##" tags for labels, example "Semi-Manual Q##KindredSemiManualQ"
+        bool create_color_picker( SmallStr label, SmallStr description, float* col );
         uint64_t* init_config(const uint64_t key, const uint64_t default_value);
+        uint64_t config_get(const uint64_t key);
+        void set_color( SmallStr str_key, float* v ); //float col[4] = { 1.f, 1.f, 1.f, 1.f }; //0.f - 1.f
+        void init_color_flt( SmallStr str_key, float* v ); //float col[4] = { 1.f, 1.f, 1.f, 1.f }; //0.f - 1.f
+        void init_color_rgb( SmallStr str_key, Color const& v );
+        Color get_color( SmallStr str_key );
+        template<typename T> T cfg_get(const uint64_t key) 
+        { 
+            return static_cast<T>(config_get(key));
+        }
         bool* init_bool(const ConfigKey key, const bool default_value);
         int* init_int(const ConfigKey key, const int default_value);
+        void set_default_keybind( SmallStr label, int imgui_key, bool is_hold );
+        inline void set_default_keybind( SmallStr label, ImGuiKey key, bool is_hold )
+        {
+            set_default_keybind( label, static_cast<int>( key ), is_hold );
+        }
+        void init_keybind( const SmallStr label, uint64_t hashed_name );
+        void update_permashow( SmallStr label, uint64_t v );
+        void enable_second_tab( bool v );
+        void set_tab_name( int i, SmallStr name ); // i = 0, i = 1
+        void create_whitelist( SmallStr config_base, SmallStr display_name, bool enemies = true, bool allies = false );
+        bool is_whitelisted( SmallStr config_base, Object* x );
+        void init_whitelist( SmallStr config_base, bool default_enabled = true ); //also inits for allies just in case
     } // namespace menu_api
 
     // define functions
@@ -1826,16 +2207,25 @@ namespace sdk {
         float calculate_real_damage(Object* target, float damage, bool is_physical_damage);
         float get_real_health(Object* target, EDamageType damage_type, float delay, bool predict_ally_damage);
         EHeroes get_current_hero();
+        EHeroes get_hero( Object* x );
         bool is_wall_in_line(Vec3 start, Vec3 end);
         bool is_position_near_turret(Vec3 position, bool ally_turret, float nearby_threshold);
         bool is_position_under_turret(Vec3 position, bool ally_turret);
         int get_nearby_champions_count(Vec3 position, bool allies, float nearby_threshold);
         Polygon get_line_missile_hitbox_polygon(Vec3 start, Vec3 end, float radius);
+        bool is_windwall_in_line( Vec3 start, Vec3 end );
+        int is_casting_interruptible_spell( Object* x ); //0 - not casting, 1 - medium danger spell (MasterYi W), 2 - high danger level spell (Katarina R)
+        //min_aa_count = total health of all minions inside the hit zone must be >= {x} aa damage
+        Vec3 get_best_clear_pos( float delay, float radius, float range, float speed, bool is_jungle, int type, int aa_count, int min_minions_count ); //can be invalid!
+        bool is_facing( Object* source, Object* other, float angle_req = 120.f );
+        Vec3 get_heroes_multihit_position( float range, float speed, float radius, float delay, bool linear, int min_count = 2 );
     } // namespace utils
 
     // define functions
     namespace orbwalker {
         EOrbwalkerMode get_mode();
+        bool is_logic_modifier_active( ); //FastLaneclear/freeze/fullcombo/etc
+        bool can_spellfarm( );
         bool can_attack(int16_t);
         bool is_attackable(Object*);
         bool is_winding_up();
@@ -1852,10 +2242,45 @@ namespace sdk {
 
     } // namespace orbwalker
 
-    namespace evade {
-        bool is_active();
-        bool is_evade_toggled();
-        bool is_position_safe(Vec3, int);
+    struct SSpellData
+    {
+        u32 spellHash{};
+        u32 heroHash{}; //can be not set........
+        bool isCC{};
+        char menuName[ 128 ]{};;
+        bool isTargeted{};
+        bool isMissile{};
+        bool isSpecial{};
+        bool isSkillshot{};
+        bool isSkillshotMissile{};
+        bool isObject{};
+
+        u64 uniqueID{}; //use this
+        EHeroes heroID{ EHeroes::null }; //can be not set........
+        //compare both: ( heroID == utils::get_hero( object ) || heroHash == rt_hash( object->object_name( ) ) ) for menu
+    };
+
+    struct SEvadeSpell
+    {
+        int danger_level{}; //empty for targeted
+        u64 unique_id{}; //use this
+        float time_to_hit{};
+        bool is_cc{};
+        bool is_missile{};
+        bool is_targeted{};
+    };
+
+    namespace evade
+    {
+        bool is_active( );
+        bool is_evade_toggled( );
+        bool is_position_safe( Vec3, int );
+        void set_evade_active( bool is_active );
+        std::vector<SSpellData> const get_supported_spells( );
+        std::vector<SEvadeSpell>const get_active_missiles( Vec3 pos = Vec3{} ); //is_zero = player->pos
+        std::vector<SEvadeSpell>const get_active_targeted( );
+        std::vector<SEvadeSpell>const get_active_skillshots( Vec3 pos = Vec3{} );
+        std::vector<SEvadeSpell>const get_active_special( bool evade_early = true ); //Warwick E
     } // namespace evade
 
     namespace prediction {
@@ -1889,6 +2314,10 @@ namespace sdk {
         Object* get_object_by_index(int16_t);
         Object* get_object_by_network_id(uint32_t);
     }; // namespace object_manager
+
+   namespace console {
+        void print( std::string message, Color color = Color::white());
+    }; // namespace console
 
     void init(FnLoadFunction);
 
@@ -2005,6 +2434,52 @@ namespace sdk {
             JOIN(position, color, radius, segments, thickness)
         );
 
+        // 3d glow functions
+        IMPORT_FUNCTION( render, void, circle_3d_glow,
+            JOIN( const Vec3 center,
+                const f32 radius,
+                const Color color,
+                const f32 thickness,
+                const f32 glow,
+                const u8 type,
+                const f32 glow_opacity,
+                const f32 background_opacity ),
+            JOIN( center,
+                radius,
+                color,
+                thickness,
+                glow,
+                type,
+                glow_opacity,
+                background_opacity ) );
+        IMPORT_FUNCTION( render, void, polyline_3d_glow,
+            JOIN( const std::vector<Vec3>& points,
+                const Color color,
+                const f32 thickness,
+                const f32 glow,
+                const f32 glow_opacity ),
+            JOIN( points,
+                color,
+                thickness,
+                glow,
+                glow_opacity ) );
+        IMPORT_FUNCTION( render, void, polygon_3d_glow,
+            JOIN( const std::vector<Vec3>& points,
+                const Color color,
+                const f32 thickness,
+                const f32 glow,
+                const f32 glow_opacity,
+                const f32 background_opacity ),
+            JOIN( points,
+                color,
+                thickness,
+                glow,
+                glow_opacity,
+                background_opacity ) );
+        IMPORT_FUNCTION( render, void, line_3d_glow,
+            JOIN( Vec3 start, Vec3 end,
+            const Color color, const f32 thickness, const f32 glow, const f32 glow_strength ),
+            JOIN( start, end, color, thickness, glow, glow_strength ) );
     } // namespace render
 
     // math imports
@@ -2029,6 +2504,7 @@ namespace sdk {
         JOIN(SmallStr name, const std::vector<Subscription>& subscriptions),
         JOIN(name, subscriptions)
     );
+    IMPORT_FUNCTION( globals, void, disable_core_plugin, , ); //Disable internal core module if you want to make your own
 
     IMPORT_FUNCTION(globals, float, get_time, , );
     IMPORT_FUNCTION(globals, float, get_latency, , );
@@ -2080,12 +2556,23 @@ namespace sdk {
         IMPORT_FUNCTION(target_selector, int, get_champion_priority, std::string champion_name, champion_name);
     } // namespace target_selector
 
+    namespace console {
+        IMPORT_FUNCTION(console, void, print, 
+            JOIN(std::string message, Color color), 
+            JOIN(message, color));
+    }
+
     namespace menu_api {
-        IMPORT_FUNCTION(menu_api, bool, create_sub_menu, JOIN(SmallStr label, bool enabled), JOIN(label, enabled));
-        IMPORT_FUNCTION(menu_api, void, end_sub_menu, , );
-        IMPORT_FUNCTION(menu_api, void, create_separator, , );
+        IMPORT_FUNCTION(menu_api, bool, create_sub_menu, 
+            JOIN(SmallStr label, std::function<void()> content, SmallStr description), 
+            JOIN(label, content, description)
+        );
+        IMPORT_FUNCTION(menu_api, void, create_separator, 
+            SmallStr text,
+            text );
         IMPORT_FUNCTION(menu_api, void, create_new_line, , );
-        IMPORT_FUNCTION(menu_api, void, create_text, SmallStr fmt, fmt);
+        IMPORT_FUNCTION( menu_api, void, init_keybind, JOIN( SmallStr label, uint64_t hashed_name ), JOIN( label, hashed_name ) );
+        IMPORT_FUNCTION( menu_api, void, set_default_keybind, JOIN( SmallStr label, int imgui_key, bool is_hold ), JOIN( label, imgui_key, is_hold ) )
         IMPORT_FUNCTION(
             menu_api,
             bool,
@@ -2098,26 +2585,34 @@ namespace sdk {
             menu_api,
             bool,
             create_int_slider,
-            JOIN(SmallStr label, int* value, int min, int max, SmallStr format),
-            JOIN(label, value, min, max, format)
+            JOIN(SmallStr label, int* value, int min, int max),
+            JOIN(label, value, min, max)
         );
-
-        IMPORT_FUNCTION(
-            menu_api,
-            bool,
-            create_keybind,
-            JOIN(SmallStr label, int* value),
-            JOIN(label, value)
-        ); // value is virtual key codes https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
+        IMPORT_FUNCTION(menu_api, bool, create_keybind, JOIN(SmallStr label, const uint64_t value), JOIN(label, value));
+        IMPORT_FUNCTION( menu_api, bool, create_color_picker,
+            JOIN( SmallStr label, SmallStr description, float* col ),
+            JOIN( label, description, col ) );
         IMPORT_FUNCTION(menu_api, uint64_t*, init_config, JOIN(const uint64_t key, const uint64_t default_value), JOIN(key, default_value));
-
-        bool* init_bool(const ConfigKey key, const bool default_value) {
-            return reinterpret_cast<bool*>(init_config(uint64_t(key), uint64_t(default_value)));
+        IMPORT_FUNCTION(menu_api, uint64_t, config_get, const uint64_t key, key);
+        IMPORT_FUNCTION( menu_api, void, set_color, JOIN( SmallStr str_key, float* v ), JOIN( str_key, v ) );
+        IMPORT_FUNCTION( menu_api, void, init_color_rgb, JOIN( SmallStr str_key, Color const& v ), JOIN( str_key, v ) );
+        IMPORT_FUNCTION( menu_api, void, init_color_flt, JOIN( SmallStr str_key, float* v ), JOIN( str_key, v ) );
+        IMPORT_FUNCTION( menu_api, Color, get_color, SmallStr str_key, str_key );
+        IMPORT_FUNCTION( menu_api, void, update_permashow, JOIN( SmallStr label, uint64_t v ), JOIN( label, v ) );
+        bool* init_bool( const ConfigKey key, const bool default_value ) {
+            return reinterpret_cast< bool* >( init_config( uint64_t( key ), uint64_t( default_value ) ) );
         }
 
-        int* init_int(const ConfigKey key, const int default_value) {
-            return reinterpret_cast<int*>(init_config(uint64_t(key), uint64_t(default_value)));
-        }
+        int* init_int( const ConfigKey key, const int default_value ) {
+            return reinterpret_cast< int* >( init_config( uint64_t( key ), uint64_t( default_value ) ) );
+        };
+        IMPORT_FUNCTION( menu_api, void, enable_second_tab, bool v, v );
+        IMPORT_FUNCTION( menu_api, void, set_tab_name, JOIN( int i, SmallStr name ), JOIN( i, name ) );
+        IMPORT_FUNCTION( menu_api, void, create_whitelist,
+            JOIN( SmallStr config_base, SmallStr display_name, bool enemies, bool allies ),
+            JOIN( config_base, display_name, enemies, allies ) );
+        IMPORT_FUNCTION( menu_api, bool, is_whitelisted, JOIN( SmallStr config_base, Object* x ), JOIN( config_base, x ) );
+        IMPORT_FUNCTION( menu_api, void, init_whitelist, JOIN( SmallStr config_base, bool default_enabled ), JOIN( config_base, default_enabled ) );
     } // namespace menu_api
 
     namespace utils {
@@ -2168,6 +2663,7 @@ namespace sdk {
             JOIN(target, damage_type, delay, predict_ally_damage)
         );
         IMPORT_FUNCTION(utils, EHeroes, get_current_hero, , );
+        IMPORT_FUNCTION( utils, EHeroes, get_hero, Object* x, x );
         IMPORT_FUNCTION(utils, bool, is_wall_in_line, JOIN(Vec3 start, Vec3 end), JOIN(start, end));
         IMPORT_FUNCTION(
             utils,
@@ -2193,10 +2689,24 @@ namespace sdk {
             fn(start, end, radius, &out.points);
             return out;
         }
+
+        IMPORT_FUNCTION( utils, bool, is_windwall_in_line, JOIN( Vec3 start, Vec3 end ), JOIN( start, end ) );
+        IMPORT_FUNCTION( utils, int, is_casting_interruptible_spell, Object* x, x );
+        IMPORT_FUNCTION( utils, Vec3, get_best_clear_pos,
+            JOIN( float delay, float radius, float _range, float speed, bool is_jungle, int type, int aa_count, int minions_count ),
+            JOIN( delay, radius, _range, speed, is_jungle, type, aa_count, minions_count ) );
+        IMPORT_FUNCTION( utils, bool, is_facing,
+            JOIN( Object* source, Object* other, float angle_req ),
+            JOIN( source, other, angle_req ) );
+        IMPORT_FUNCTION( utils, Vec3, get_heroes_multihit_position,
+            JOIN( float range, float speed, float radius, float delay, bool linear, int min_count ),
+            JOIN( range, speed, radius, delay, linear, min_count ) );
     } // namespace utils
 
     namespace orbwalker {
         IMPORT_FUNCTION(orbwalker, EOrbwalkerMode, get_mode, , );
+        IMPORT_FUNCTION( orbwalker, bool, is_logic_modifier_active, , );
+        IMPORT_FUNCTION( orbwalker, bool, can_spellfarm, , );
         IMPORT_FUNCTION(orbwalker, bool, can_attack, int16_t target_index, target_index);
         IMPORT_FUNCTION(orbwalker, bool, is_attackable, Object* target, target);
         IMPORT_FUNCTION(orbwalker, bool, is_winding_up, , );
@@ -2207,9 +2717,9 @@ namespace sdk {
         IMPORT_FUNCTION(orbwalker, void, ignore_minion, JOIN(int16_t index, float duration), JOIN(index, duration));
         IMPORT_FUNCTION(orbwalker, bool, is_ignored, int16_t index, index);
 
-        IMPORT_FUNCTION(orbwalker, void, disable_movement_for, float duration, duration);
+        IMPORT_FUNCTION(orbwalker, void, disable_movement_for, float duration, duration); 
         IMPORT_FUNCTION(orbwalker, void, disable_autoattack_for, float duration, duration);
-
+                                                                                           
         IMPORT_FUNCTION(orbwalker, Color, get_rainbow_color, , );
         IMPORT_FUNCTION(orbwalker, Color, get_pulsing_color, , );
     } // namespace orbwalker
@@ -2258,6 +2768,12 @@ namespace sdk {
         IMPORT_FUNCTION(evade, bool, is_active, , );
         IMPORT_FUNCTION(evade, bool, is_evade_toggled, , );
         IMPORT_FUNCTION(evade, bool, is_position_safe, JOIN(Vec3 position, int minimum_danger), JOIN(position, minimum_danger));
+        IMPORT_FUNCTION( evade, void, set_evade_active, bool b, b );
+        IMPORT_FUNCTION( evade, std::vector<SSpellData> const, get_supported_spells, ,  );
+        IMPORT_FUNCTION( evade, std::vector<SEvadeSpell> const, get_active_missiles, Vec3 pos, pos );
+        IMPORT_FUNCTION( evade, std::vector<SEvadeSpell> const, get_active_targeted, , );
+        IMPORT_FUNCTION( evade, std::vector<SEvadeSpell> const, get_active_skillshots, Vec3 pos, pos );
+        IMPORT_FUNCTION( evade, std::vector<SEvadeSpell> const, get_active_special, bool evade_early, evade_early );
     } // namespace evade
 
     namespace navgrid {
@@ -2286,3 +2802,9 @@ namespace sdk {
 #endif
 
 } // namespace sdk
+
+#define IsCombo sdk::orbwalker::get_mode( ) == sdk::EOrbwalkerMode::combo
+#define IsHarass sdk::orbwalker::get_mode( ) == sdk::EOrbwalkerMode::harass
+#define IsLaneclear sdk::orbwalker::get_mode( ) == sdk::EOrbwalkerMode::laneclear
+#define IsFastClear ( IsLaneclear && sdk::orbwalker::is_logic_modifier_active( ) )
+#define IsFlee sdk::orbwalker::get_mode( ) == sdk::EOrbwalkerMode::flee

@@ -1,7 +1,7 @@
 ﻿#include "karthus.hpp"
 #include <unordered_map>
 
-// TODO: add laneclear Q, add killsteal Q, FIX E(dead enemys & when not in combo anymore still disable)
+// TODO: add killsteal Q, FIX E(dead enemys & when not in combo anymore still disable)
 
 namespace karthus {
 
@@ -25,54 +25,29 @@ namespace karthus {
     bool draw_r = true;
 
     void create_menu() {
-        static const sdk::SmallStr hitchances[] = {"Low", "Medium", "High", "Very High"};
+            sdk::menu_api::create_separator("Karthus Settings");
+            sdk::menu_api::create_checkbox("Enable Q", &enable_q);
+            sdk::menu_api::create_combo_box(
+                "Q Hitchance", &hitchance_q, sdk::menu_api::hitchance_names, std::size(sdk::menu_api::hitchance_names)
+            );
+            sdk::menu_api::create_checkbox("Enable W", &enable_w);
+            sdk::menu_api::create_checkbox("Enable E", &enable_e);
+            //sdk::menu_api::create_checkbox("Enable R ", &enable_r);
 
-        if (sdk::menu_api::create_sub_menu("Karthus Settings", true)) {
-            if (sdk::menu_api::create_sub_menu("Q Settings", true)) {
-                sdk::menu_api::create_checkbox("Enable Q", &enable_q);
-                sdk::menu_api::create_combo_box("q Hitchance", &hitchance_q, hitchances, 4);
-                sdk::menu_api::end_sub_menu();
-            }
+            sdk::menu_api::create_separator("Drawings");
 
-            if (sdk::menu_api::create_sub_menu("W Settings", true)) {
-                sdk::menu_api::create_checkbox("Enable W", &enable_w);
-                sdk::menu_api::end_sub_menu();
-            }
-
-            if (sdk::menu_api::create_sub_menu("E Settings", true)) {
-                sdk::menu_api::create_checkbox("Enable E", &enable_e);
-                sdk::menu_api::end_sub_menu();
-            }
-
-            if (sdk::menu_api::create_sub_menu("R Settings", true)) {
-                sdk::menu_api::create_checkbox("not implementet yet", &enable_r);
-                sdk::menu_api::end_sub_menu();
-            }
-
-
-            if (sdk::menu_api::create_sub_menu("Drawings", true)) {
-                sdk::menu_api::create_checkbox("Enable Q - Drawing", &draw_q);
-                sdk::menu_api::create_checkbox("Enable W - Drawing", &draw_w);
-                sdk::menu_api::create_checkbox("Enable E - Drawing", &draw_e);
-                sdk::menu_api::create_checkbox("Enable R Killinfo", &draw_r);
-                sdk::menu_api::end_sub_menu();
-            }
-
-            sdk::menu_api::end_sub_menu();
+            sdk::menu_api::create_checkbox("Draw Q Range", &draw_q);
+            sdk::menu_api::create_checkbox("Draw W Range", &draw_w);
+            sdk::menu_api::create_checkbox("Draw E Range", &draw_e);
+            sdk::menu_api::create_checkbox("Show R Kill-Info", &draw_r);
         }
-    }
+
+
 
     static float calculate_r_damage(sdk::Object* local, int r_level) {
         const std::vector<float> r_base_damage = {0.f, 200.f, 350.f, 500.f};
         return r_base_damage[r_level] + 0.7f * local->ability_power();
     }
-    static float calculate_q_damage_lc(sdk::Object* local) {
-        const std::vector<float> q_base_damage = {0.f, 40.f, 59.f, 78.f, 97.f, 116.f};
-        auto q_slot = local->get_spell_slot(sdk::ESpellSlot::q);
-        int q_level = q_slot ? q_slot->level() : 0;
-        return q_base_damage[q_level] + 0.35f * local->ability_power();
-    }
-
     static void draw_r_killable() {
         auto local = sdk::object_manager::get_local();
         if (!local) {
@@ -138,7 +113,12 @@ namespace karthus {
             sdk::render::texture(icon_pos, sdk::Vec2(icon_size, icon_size), texture);
         }
     }
-
+    static float calculate_q_damage_lc(sdk::Object* local) {
+        const std::vector<float> q_base_damage = {0.f, 40.f, 59.f, 78.f, 97.f, 116.f};
+        auto q_slot = local->get_spell_slot(sdk::ESpellSlot::q);
+        int q_level = q_slot ? q_slot->level() : 0;
+        return q_base_damage[q_level] + 0.35f * local->ability_power();
+    }
     bool handle_q_enemy(sdk::Object* local, float Q_RANGE, float Q_SPEED, float Q_RADIUS, float Q_DELAY, auto target) {
         if (target) {
             float distance = local->position().dist_to(target->position());
@@ -158,7 +138,7 @@ namespace karthus {
         bool casted = false;
         auto minions = sdk::object_manager::get_enemy_minions();
         for (auto minion: minions) {
-            if (!minion || minion->is_dead() || minion->team() == local->team() || !minion->is_lane_minion()) {
+            if (!minion || minion->is_dead() || minion->team() == local->team() || !minion->is_lane_minion() || !minion->is_jungle_monster()) {
                 continue;
             }
             if (local->position().dist_to(minion->position()) > Q_RANGE) {
@@ -239,10 +219,59 @@ namespace karthus {
                     last_q_time = current_time;
                 }
             }
+            if (sdk::orbwalker::get_mode() == sdk::EOrbwalkerMode::laneclear) {
+                bool casted = false;
+                if (handle_q_lasthit(local, Q_RANGE, Q_DELAY_MIN)) {
+                    casted = true;
+                } else {
+                    sdk::Object* bestMinion = nullptr;
+                    float lowestHealth = std::numeric_limits<float>::max();
+                    auto minions = sdk::object_manager::get_enemy_minions();
+                    for (auto minion: minions) {
+                        if (!minion || minion->is_dead() || minion->team() == local->team()) {
+                            continue;
+                        }
+                        if (!minion->is_lane_minion() && !minion->is_jungle_monster()) {
+                            continue;
+                        }
+                        float dist = local->position().dist_to(minion->position());
+                        if (dist > Q_RANGE) {
+                            continue;
+                        }
+
+
+                        if (minion->health() < lowestHealth) {
+                            lowestHealth = minion->health();
+                            bestMinion = minion;
+                        }
+                    }
+
+                    if (bestMinion) {
+                        auto predictedPosOpt = sdk::prediction::simple_predict(bestMinion, Q_DELAY_MIN);
+                        if (predictedPosOpt.has_value()) {
+                            auto predictedPos = predictedPosOpt.value();
+                            if (sdk::spellbook::cast_spell_to_position(sdk::ESpellSlot::q, predictedPos)) {
+                                casted = true;
+                            }
+                        }
+                    }
+                }
+                if (casted) {
+                    last_q_time = current_time;
+                    q_is_casting = true;
+                    return;
+                }
+            }
+
+
         }
     }
-    void handle_w_combo(sdk::Object* local) {
+    void handle_w(sdk::Object* local) {
         if (!enable_w) {
+            return;
+        }
+        auto mode = sdk::orbwalker::get_mode();
+        if (mode != sdk::EOrbwalkerMode::combo) {
             return;
         }
         auto w_slot = local->get_spell_slot(sdk::ESpellSlot::w);
@@ -276,7 +305,38 @@ namespace karthus {
             }
         }
     }
-    void handle_e_combo(sdk::Object* local) {
+    bool is_enemy_nearby_e(sdk::Object* local,float E_RANGE) {
+        bool has_enemy_nearby = false;
+        for (auto enemy: sdk::object_manager::get_enemy_heroes()) {
+            if (!enemy || enemy->is_dead() || enemy->team() == local->team()) {
+                continue;
+            }
+            if (local->position().dist_to(enemy->position()) <= E_RANGE) {
+                has_enemy_nearby = true;
+                return has_enemy_nearby;
+            }
+        }
+        return has_enemy_nearby;
+    }
+    bool is_minion_nearby_e(sdk::Object* local, float E_RANGE) {
+        bool has_minion_nearby = false;
+        for (auto minion: sdk::object_manager::get_enemy_minions()) {
+            if (!minion || minion->is_dead() || minion->team() == local->team()) {
+                continue;
+            }
+            if (!minion->is_lane_minion() && !minion->is_jungle_monster()) {
+                continue;
+            }
+            float dist = local->position().dist_to(minion->position());
+            if (dist > E_RANGE) {
+                continue;
+            }
+            has_minion_nearby = true;
+        }
+
+        return has_minion_nearby;
+    }
+    void handle_e(sdk::Object* local) {
         if (!enable_e) {
             return;
         }
@@ -292,32 +352,27 @@ namespace karthus {
         if (local->mana() < e_slot->manacost()) {
             return;
         }
-
+        auto mode = sdk::orbwalker::get_mode();
+        constexpr float E_RANGE = 550.f;
         bool is_e_active = false;
         std::vector<sdk::BuffInstance*> allBuffs;
         local->get_buff_manager()->get_all(&allBuffs);
         for (auto buff: allBuffs) {
-            if (buff->get_name() == "KarthusDefile") {
+            if (buff->_get_name() == "KarthusDefile") {
                 is_e_active = true;
                 break;
             }
         }
 
-        if (!(e_slot && (e_slot->is_ready() || is_e_active))) {
+  /*      if (!(e_slot && (e_slot->is_ready() || is_e_active))) {
+            return;
+        }*/
+        if (mode == sdk::EOrbwalkerMode::recalling) {
             return;
         }
 
-        constexpr float E_RANGE = 550.f;
-        bool has_enemy_nearby = false;
-        for (auto enemy: sdk::object_manager::get_enemy_heroes()) {
-            if (!enemy || enemy->is_dead() || enemy->team() == local->team()) {
-                continue;
-            }
-            if (local->position().dist_to(enemy->position()) <= E_RANGE) {
-                has_enemy_nearby = true;
-                break;
-            }
-        }
+        bool has_enemy_nearby = is_enemy_nearby_e(local, E_RANGE);
+        bool has_minion_nearby = is_minion_nearby_e(local, E_RANGE);
 
         static float lastEnemySeenTime = sdk::get_time();
         static bool last_enemy_state = false;
@@ -325,76 +380,55 @@ namespace karthus {
         if (has_enemy_nearby) {
             lastEnemySeenTime = sdk::get_time();
         }
-
-        if (has_enemy_nearby != last_enemy_state) {
-            if (has_enemy_nearby && !is_e_active) {
-                sdk::spellbook::cast_spell(sdk::ESpellSlot::e); 
-                last_e_time = current_time;
+        if (mode == sdk::EOrbwalkerMode::combo) {
+            if (has_enemy_nearby != last_enemy_state) {
+                if (has_enemy_nearby && !is_e_active) {
+                    sdk::spellbook::cast_spell(sdk::ESpellSlot::e);
+                    last_e_time = current_time;
+                    is_e_active = true;
+                }
+                last_enemy_state = has_enemy_nearby;
             }
-            last_enemy_state = has_enemy_nearby;
+            if (!has_enemy_nearby && is_e_active) {
+                if (sdk::get_time() - lastEnemySeenTime > 2.0f) {
+                    sdk::spellbook::cast_spell(sdk::ESpellSlot::e);
+                    is_e_active = false;
+                    lastEnemySeenTime = sdk::get_time();
+                    last_e_time = current_time;
+                }
+            }
         }
+        if (mode == sdk::EOrbwalkerMode::laneclear) {
+            int target_count = 0;
+            for (auto enemy: sdk::object_manager::get_enemy_minions()) {
+                if (!enemy || enemy->is_dead() || enemy->team() == local->team()) {
+                    continue;
+                }
+                if ((enemy->is_lane_minion() || enemy->is_jungle_monster()) && local->position().dist_to(enemy->position()) <= E_RANGE) {
+                    target_count++;
+                }
+            }
+            if (target_count >= 3) {
+                if (!is_e_active) {
+                    sdk::spellbook::cast_spell(sdk::ESpellSlot::e);
+                    is_e_active = true;
+                    last_e_time = current_time;
+                   
+                }
+            }
 
+
+        }
         // deactivate again if no enemy in range for 2s
-        if (!has_enemy_nearby && is_e_active) {
+        if (!has_enemy_nearby && !has_minion_nearby && is_e_active) {
             if (sdk::get_time() - lastEnemySeenTime > 2.0f) {
-                sdk::spellbook::cast_spell(sdk::ESpellSlot::e); 
+                sdk::spellbook::cast_spell(sdk::ESpellSlot::e);
+                is_e_active = false;
                 lastEnemySeenTime = sdk::get_time();
                 last_e_time = current_time;
             }
         }
     }
-    void handle_e_other(sdk::Object* local) {
-
-        float current_time = sdk::get_time();
-        static float last_e_time_lc = 0.0f;
-        auto e_slot = local->get_spell_slot(sdk::ESpellSlot::e);
-        if (!enable_e) {
-            return;
-        }
-        if (!e_slot || !e_slot->is_ready() || e_slot->level() <= 0) {
-            return;
-        }
-        if (current_time - last_e_time_lc <= 0.4f) {
-            return;
-        }
-        if (local->mana() < e_slot->manacost()) {
-            return;
-        }
-
-        constexpr float E_RANGE = 550.f;
-        int target_count = 0;
-        for (auto enemy: sdk::object_manager::get_enemy_minions()) {
-            if (!enemy || enemy->is_dead() || enemy->team() == local->team()) {
-                continue;
-            }
-            if ((enemy->is_lane_minion() || enemy->is_jungle_monster()) && local->position().dist_to(enemy->position()) <= E_RANGE) {
-                target_count++;
-            }
-        }
-        bool is_e_active = false;
-        std::vector<sdk::BuffInstance*> buffs;
-        local->get_buff_manager()->get_all(&buffs);
-        for (auto buff: buffs) {
-            if (buff->get_name() == "KarthusDefile") {
-                is_e_active = true;
-                break;
-            }
-        }
-        if (target_count >= 3) {
-            if (!is_e_active) {
-                sdk::spellbook::cast_spell(sdk::ESpellSlot::e);
-                last_e_time_lc = current_time;
-
-            }
-        } else {
-            if (is_e_active) {
-                sdk::spellbook::cast_spell(sdk::ESpellSlot::e);
-                last_e_time_lc = current_time;
-
-            }
-        }
-    }
-
     void on_update(sdk::Object* local) {
         if (!local) {
             return;
@@ -404,7 +438,7 @@ namespace karthus {
             std::vector<sdk::BuffInstance*> buffs;
             local->get_buff_manager()->get_all(&buffs);
             for (auto buff: buffs) {
-                if (buff->get_name() == "KarthusDeathDefiedBuff") {
+                if (buff->_get_name() == "KarthusDeathDefiedBuff") {
                     canCast = true;
                     break;
                 }
@@ -416,20 +450,11 @@ namespace karthus {
         if (sdk::orbwalker::get_mode() != sdk::EOrbwalkerMode::none && sdk::orbwalker::get_mode() != sdk::EOrbwalkerMode::flee &&
             sdk::orbwalker::get_mode() != sdk::EOrbwalkerMode::freeze && sdk::orbwalker::get_mode() != sdk::EOrbwalkerMode::recalling) {
             handle_q(local);
-            handle_w_combo(local);
-            handle_e_combo(local);
-
+            handle_w(local);
         }
-
-        if (sdk::orbwalker::get_mode() == sdk::EOrbwalkerMode::laneclear) {
-            handle_e_other(local);
-        }
-
-
+        handle_e(local);
 
     }
-
-
     void on_draw(sdk::Object* local) {
         if (!local) {
             return;

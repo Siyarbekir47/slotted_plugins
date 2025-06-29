@@ -20,7 +20,16 @@
     <ClCompile Include="dllmain.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="karthus.cpp">
+    <ClCompile Include="champions\karthus.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="champions\kayle.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="data\champion_data.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="champions\mundo.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -34,7 +43,16 @@
     <ClInclude Include="clipper\clipper.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="karthus.hpp">
+    <ClInclude Include="champions\karthus.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="champions\kayle.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="data\champion_data.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="champions\mundo.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

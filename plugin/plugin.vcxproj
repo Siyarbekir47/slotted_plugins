@@ -77,15 +77,21 @@ $(TargetDir)..\..\builder.exe</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="champions\kayle.cpp" />
+    <ClCompile Include="champions\mundo.cpp" />
+    <ClCompile Include="data\champion_data.cpp" />
     <ClCompile Include="dllmain.cpp" />
-    <ClCompile Include="karthus.cpp" />
+    <ClCompile Include="champions\karthus.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include=".clang-format" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="champions\kayle.hpp" />
+    <ClInclude Include="champions\mundo.hpp" />
     <ClInclude Include="clipper\clipper.hpp" />
-    <ClInclude Include="karthus.hpp" />
+    <ClInclude Include="champions\karthus.hpp" />
+    <ClInclude Include="data\champion_data.h" />
     <ClInclude Include="sdk.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
